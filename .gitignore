@@ -1,0 +1,7 @@
+# build output
+/target/
+
+# personal photos of the pets, and anything made from them: never commit
+/alex/
+/alex the bun/
+/drafts/looks/compare-*.png
