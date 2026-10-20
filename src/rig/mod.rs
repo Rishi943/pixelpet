@@ -4,9 +4,11 @@
 
 pub mod core;
 pub mod dog;
+pub mod props;
 pub mod rabbit;
 
 pub use self::core::Look;
+pub use self::props::Food;
 use self::core::{frame_size, raster, to_rgba, toy_shape, Palette, ToyKind};
 use std::sync::OnceLock;
 
