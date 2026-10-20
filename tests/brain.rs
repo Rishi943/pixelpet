@@ -626,8 +626,10 @@ fn fetch_round_trip_alex() {
     assert!(d1 > d0, "toy depth {d0} -> {d1}");
     let target = fetch::throw_depth(3000.0, sim.unit_px);
     let (seq, deepest, mouth) = fetch_run(&mut sim, 40.0);
-    let at = |a: Anim| seq.iter().position(|x| *x == a).unwrap_or_else(|| panic!("{a:?} missing from {seq:?}"));
-    assert!(at(Anim::Run) < at(Anim::Eat) && at(Anim::Eat) < at(Anim::Carry) && at(Anim::Carry) < at(Anim::Sit), "{seq:?}");
+    // side-on, or seen from behind/front when the run is mostly into the screen
+    let at = |a: &[Anim]| seq.iter().position(|x| a.contains(x)).unwrap_or_else(|| panic!("{a:?} missing from {seq:?}"));
+    let (run, carry) = (at(&[Anim::Run, Anim::RunAway]), at(&[Anim::Carry, Anim::CarryBack]));
+    assert!(run < at(&[Anim::Eat]) && at(&[Anim::Eat]) < carry && carry < at(&[Anim::Sit]), "{seq:?}");
     assert!((deepest - target).abs() < 0.05, "ran to depth {deepest}, the toy was at {target}");
     assert!(mouth.iter().any(|m| *m), "never carried it");
     let sh = sim.last;
@@ -996,4 +998,23 @@ fn tug_chosen_from_the_bubble_is_not_lost_at_once() {
     sim.over_pet = true;
     sim.step();
     assert_eq!(sim.last.props.rope_to, None, "dragged onto the pet: the pet wins");
+}
+
+#[test]
+fn alex_runs_into_the_screen_and_back() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    // thrown straight in from right where he stands
+    let x = sim.last.x as i32;
+    throw(&mut sim, Toy::Ball, x, 3000.0);
+    let (seq, _, _) = fetch_run(&mut sim, 40.0);
+    assert!(seq.contains(&Anim::RunAway), "ran in side-on: {seq:?}");
+    assert!(seq.contains(&Anim::CarryBack), "came back side-on: {seq:?}");
+    // the bun keeps its side-on hop
+    let mut sim = Sim::new(Pet::Rabbit);
+    sim.run(1.0, |_, _| {});
+    let x = sim.last.x as i32;
+    throw(&mut sim, Toy::Football, x, 3000.0);
+    let (seq, _, _) = fetch_run(&mut sim, 60.0);
+    assert!(!seq.contains(&Anim::RunAway) && !seq.contains(&Anim::CarryBack), "{seq:?}");
 }

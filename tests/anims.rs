@@ -268,3 +268,53 @@ fn watch_looks_up_at_the_screen() {
         }
     }
 }
+
+// ---------------------------------------------------------------- into the screen
+
+/// (min x, max x, max y) of the opaque pixels.
+fn bbox(f: &rig::Frame) -> (usize, usize, usize) {
+    let (mut x0, mut x1, mut y1) = (f.w, 0, 0);
+    for y in 0..f.h {
+        for x in 0..f.w {
+            if f.rgba[(y * f.w + x) * 4 + 3] > 0 {
+                (x0, x1, y1) = (x0.min(x), x1.max(x), y1.max(y));
+            }
+        }
+    }
+    (x0, x1, y1)
+}
+
+#[test]
+fn running_into_and_out_of_the_screen() {
+    // the user: "running for dog is horizontal even when going into the
+    // screen, it should be changed so hes facing into the screen and running"
+    let look = look();
+    let side = rig::render(&rig::pose(Pet::Dog, Anim::Run, look, 0.1, None), look, false);
+    let side_w = { let (a, b, _) = bbox(&side); b - a };
+    let fs = rig::core::frame_size(look);
+    for a in [Anim::RunAway, Anim::RunBack, Anim::CarryBack] {
+        let mut bottoms = vec![];
+        for i in 0..12 {
+            let t = rig::period(Pet::Dog, a) * i as f64 / 12.0;
+            let s = rig::pose(Pet::Dog, a, look, t, Some(Toy::Ball));
+            let f = rig::render(&s, look, false);
+            if let Err(e) = renders_inside(&f, 300) {
+                panic!("{a:?} t={t}: {e}");
+            }
+            let (x0, x1, y1) = bbox(&f);
+            assert!(((x1 - x0) as f64) < 0.75 * side_w as f64, "{a:?}: {} px wide, side-on run is {side_w}", x1 - x0);
+            let mid = (x0 + x1) as f64 / 2.0;
+            assert!((mid - fs.ox as f64).abs() <= 3.0, "{a:?}: not centred on the ground point ({mid} vs {})", fs.ox);
+            bottoms.push(y1);
+            let Skel::Dog(d) = s else { unreachable!() };
+            match a {
+                Anim::RunAway => assert!(!d.head_front && d.view == dog::View::Back, "seen from behind"),
+                _ => assert!(d.head_front && d.eyes > 0.5 && d.view == dog::View::Front, "seen from the front, eyes open"),
+            }
+            assert_eq!(d.toy.is_some(), a == Anim::CarryBack, "{a:?}: only carry-back holds the toy");
+        }
+        assert!(bottoms.iter().any(|&b| b as i32 >= fs.gy - 1), "{a:?}: never touches the ground");
+    }
+    assert!(rig::speed(Pet::Dog, look, Anim::RunAway) == rig::speed(Pet::Dog, look, Anim::Run));
+    assert!(rig::speed(Pet::Dog, look, Anim::CarryBack) == rig::speed(Pet::Dog, look, Anim::Carry));
+}

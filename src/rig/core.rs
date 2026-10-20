@@ -229,6 +229,8 @@ pub enum Part {
     // dog
     EarF, EarN, EarFront, Tail, Rump, Torso, Chest, Neck, Brisket, Mouth, Jaw, Skull, Tongue,
     Muzzle, Nose, FSkull, FCheek, FMuzzle, LegU, Leg, Thigh, Paw,
+    /// the back of the head (seen from behind, running into the screen)
+    BackHead,
     // toys
     Ball, Coco, FBall,
     // rabbit

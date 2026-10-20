@@ -59,6 +59,16 @@ pub struct Legs {
     pub fh: [P; 4],
 }
 
+/// Which way the pet is seen. The look-sheet anims are all side-on; fetch
+/// runs into the screen (from behind) and back out (from the front).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum View {
+    #[default]
+    Side,
+    Front,
+    Back,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Skel {
     pub hip: P,
@@ -77,6 +87,7 @@ pub struct Skel {
     pub tail: [P; 5],
     pub neck_a: P,
     pub neck_b: P,
+    pub view: View,
 }
 
 fn mix_pts<const N: usize>(a: &[P; N], b: &[P; N], k: f64) -> [P; N] {
@@ -112,6 +123,7 @@ pub fn lerp(a: &Skel, b: &Skel, k: f64) -> Skel {
         tail: mix_pts(&a.tail, &b.tail, k),
         neck_a: mix_p(a.neck_a, b.neck_a, k),
         neck_b: mix_p(a.neck_b, b.neck_b, k),
+        view: if pick { a.view } else { b.view },
     }
 }
 
@@ -270,6 +282,7 @@ fn build(b: &Body, g: &Geom, c: Drive) -> Skel {
         tail,
         neck_a,
         neck_b,
+        view: View::Side,
     }
 }
 
@@ -307,6 +320,8 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Tug => 0.9,
         Anim::Stretch => 1.5,
         Anim::Watch => 6.0,
+        Anim::RunAway | Anim::RunBack => RUN_PERIOD,
+        Anim::CarryBack => CARRY_PERIOD,
         // not dog anims: the poses they fall back to
         Anim::Flop => 9.6,
         Anim::Nudge => 0.9,
@@ -344,8 +359,203 @@ pub fn pose(anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
         Anim::Tug => tug(&b, t),
         Anim::Stretch => stretch(&b, t),
         Anim::Watch => watch(&b, t),
+        Anim::RunAway => run_away(&b, t),
+        Anim::RunBack => run_back(&b, t, None, RUN_PERIOD),
+        Anim::CarryBack => run_back(&b, t, toy, CARRY_PERIOD),
         Anim::Nudge => walk(&b, t, toy),
     }
+}
+
+
+/// Gallop lift (0..1) of a leg at phase `ph`: on the ground for RUN_DUTY,
+/// then up and over.
+fn gallop_lift(ph: f64) -> f64 {
+    let ph = ph.rem_euclid(1.0);
+    if ph < RUN_DUTY {
+        0.0
+    } else {
+        (PI * (ph - RUN_DUTY) / (1.0 - RUN_DUTY)).sin()
+    }
+}
+
+/// Into the screen, seen from behind: rump and black saddle, the hind legs
+/// pumping, the back of the head and ears, the tail streaming towards us.
+/// Joints are in view space: x across the picture, y up.
+fn run_away(b: &Body, t: f64) -> Skel {
+    let p = (t / RUN_PERIOD) % 1.0;
+    let lk = b.leg_len;
+    let bob = 0.03 * (p * TAU * 2.0).cos();
+    let hip = [0.0, 0.62 * lk + 0.08 + bob];
+    let sh = [0.0, hip[1] + 0.20];
+    let head = [0.0, hip[1] + 0.44];
+    let hind = |side: f64, off: f64| {
+        let l = gallop_lift(p + off);
+        let x = 0.15 * side;
+        [[x, hip[1] - 0.04], [x * 1.1, 0.33 + 0.10 * l], [x * 0.95, 0.15 + 0.13 * l], [x * 0.92, PAW_Y + 0.13 * l]]
+    };
+    let fore = |side: f64, off: f64| {
+        let l = gallop_lift(p + off);
+        let x = 0.06 * side;
+        [[x, sh[1] - 0.08], [x, 0.30 + 0.08 * l], [x, 0.14 + 0.10 * l], [x, PAW_Y + 0.10 * l]]
+    };
+    let w = 0.05 * (p * TAU).sin();
+    let tail = [
+        [0.0, hip[1] + 0.12],
+        [w * 0.5, hip[1] + 0.02],
+        [w, hip[1] - 0.10],
+        [w * 0.8, hip[1] - 0.20],
+        [w * 0.4, hip[1] - 0.27],
+    ];
+    Skel {
+        hip,
+        sh,
+        head,
+        head_rot: 0.0,
+        head_front: false,
+        tilt: 0.0,
+        mouth: 0.0,
+        tongue: 0.0,
+        eyes: 0.0,
+        ear_back: 0.5,
+        breath: 0.0,
+        toy: None,
+        legs: Legs { nh: hind(1.0, 0.5), fh: hind(-1.0, 0.58), nf: fore(1.0, 0.0), ff: fore(-1.0, 0.08) },
+        tail,
+        neck_a: sh,
+        neck_b: head,
+        view: View::Back,
+    }
+}
+
+/// Out of the screen towards us, seen from the front: face, chest and the
+/// front legs reaching; the toy in his mouth on the way back with it.
+fn run_back(b: &Body, t: f64, toy: Option<Toy>, period: f64) -> Skel {
+    let p = (t / period) % 1.0;
+    let lk = b.leg_len;
+    let bob = 0.03 * (p * TAU * 2.0).cos();
+    let sh = [0.0, 0.60 * lk + 0.08 + bob];
+    let head = [0.0, sh[1] + 0.40];
+    let fore = |side: f64, off: f64| {
+        let l = gallop_lift(p + off);
+        let x = 0.11 * side;
+        [[x, sh[1] - 0.06], [x * 1.1, 0.30 + 0.10 * l], [x, 0.14 + 0.13 * l], [x, PAW_Y + 0.13 * l]]
+    };
+    let hind = |side: f64, off: f64| {
+        let l = gallop_lift(p + off);
+        let x = 0.16 * side;
+        [[x, sh[1] - 0.10], [x, 0.28 + 0.08 * l], [x, 0.12 + 0.10 * l], [x, PAW_Y + 0.10 * l]]
+    };
+    let hip = [0.0, sh[1] + 0.14];
+    Skel {
+        hip,
+        sh,
+        head,
+        head_rot: 0.0,
+        head_front: true,
+        tilt: 0.04 * (p * TAU).sin(),
+        mouth: if toy.is_some() { 0.45 } else { 0.5 },
+        tongue: if toy.is_some() { 0.0 } else { 0.9 },
+        eyes: 1.0,
+        ear_back: 0.4,
+        breath: 0.0,
+        toy,
+        legs: Legs { nf: fore(1.0, 0.0), ff: fore(-1.0, 0.08), nh: hind(1.0, 0.5), fh: hind(-1.0, 0.58) },
+        tail: [hip; 5],
+        neck_a: sh,
+        neck_b: head,
+        view: View::Front,
+    }
+}
+
+/// The front face (as when tilting), shared by the front view.
+fn face_front(out: &mut Vec<Shape>, s: &Skel, b: &Body, look: &Look) {
+    let mr = look.min_r / look.r;
+    let r = |x: f64| js_max(x, mr);
+    let hs = b.head * 1.15;
+    let h_ang = s.tilt;
+    let hp = |p: P| add(s.head, rot(mul(p, hs), h_ang));
+    let from = out.len();
+    for sgn in [-1.0, 1.0] {
+        let (b0, b1) = ([0.18 * sgn, 0.05], [0.05 * sgn, 0.13]);
+        let up = 0.29 * b.ear * (1.0 - 0.35 * s.ear_back);
+        out.push(tri(hp(b0), hp(b1), hp([(0.19 + 0.06 * s.ear_back) * sgn, 0.08 + up]), Part::EarFront));
+    }
+    out.push(ell(hp([0.0, 0.02]), 0.19 * hs, 0.16 * hs, h_ang, Part::FSkull));
+    out.push(ell(hp([0.0, -0.07]), 0.16 * hs, 0.095 * hs, h_ang, Part::FCheek));
+    if s.mouth > 0.08 {
+        out.push(ell(hp([0.0, -0.16]), 0.055 * hs, 0.03 * hs * s.mouth + 0.01, h_ang, Part::Mouth));
+    }
+    out.push(ell(hp([0.0, -0.10]), 0.07 * hs, 0.065 * hs, h_ang, Part::FMuzzle));
+    out.push(cap(hp([0.0, -0.01]), hp([0.0, -0.09]), r(0.035 * hs), r(0.045 * hs), Part::FMuzzle));
+    if s.tongue > 0.05 {
+        out.push(cap(hp([0.0, -0.155]), hp([0.0, -0.165 - 0.1 * s.tongue]), r(0.035 * hs), r(0.04 * hs), Part::Tongue));
+    }
+    out.push(ell(hp([0.0, -0.075]), r(0.045 * hs), r(0.03 * hs), h_ang, Part::Nose));
+    for sh in &mut out[from..] {
+        sh.grp = 6;
+    }
+    if let Some(toy) = s.toy {
+        let big = toy == Toy::Coconut;
+        out.push(toy_shape(toy.kind(), hp([0.0, if big { -0.22 } else { -0.19 }])));
+    }
+}
+
+/// A leg seen from the front or back: upper, lower, paw.
+fn leg_straight(out: &mut Vec<Shape>, j: &[P; 4], hind: bool, far: bool, grp: i8, b: &Body, look: &Look) {
+    let (lb, f) = (b.limb, b.fluff);
+    let mr = look.min_r / look.r;
+    let r = |x: f64| js_max(x, mr);
+    let [a, k, c, d] = *j;
+    if hind {
+        out.push(cap(a, k, r(0.14 * f * lb.sqrt()), r(0.075 * lb), Part::Thigh).far(far).grp(grp).no_edge());
+    } else {
+        out.push(cap(a, k, r(0.075 * lb * f), r(0.055 * lb), Part::LegU).far(far).grp(grp).no_edge());
+    }
+    out.push(cap(k, c, r(0.05 * lb), r(0.042 * lb), Part::Leg).far(far).grp(grp));
+    out.push(cap(c, d, r(0.04 * lb), r(0.038 * lb), Part::Leg).far(far).grp(grp));
+    out.push(ell(add(d, [0.0, 0.004]), r(0.045 * lb), r(0.03 * lb), 0.0, Part::Paw).far(far).grp(grp));
+}
+
+fn shapes_back(s: &Skel, b: &Body, look: &Look) -> Vec<Shape> {
+    let mut out = Vec::with_capacity(30);
+    let f = b.fluff;
+    // the front legs, far away between the hind ones
+    leg_straight(&mut out, &s.legs.ff, false, true, 3, b, look);
+    leg_straight(&mut out, &s.legs.nf, false, true, 4, b, look);
+    // the back of the head and its ears, beyond the shoulders
+    let hs = b.head;
+    for sgn in [-1.0, 1.0] {
+        let up = 0.27 * b.ear * (1.0 - 0.35 * s.ear_back);
+        out.push(tri(add(s.head, [0.15 * sgn * hs, 0.04]), add(s.head, [0.04 * sgn * hs, 0.12]), add(s.head, [(0.19 + 0.06 * s.ear_back) * sgn * hs, 0.08 + up]), Part::EarF).grp(6));
+    }
+    out.push(ell(s.head, 0.16 * hs, 0.14 * hs, 0.0, Part::BackHead).grp(6));
+    // shoulders (the black saddle) behind the rump
+    out.push(ell(s.sh, 0.26 * f, 0.15 * f, 0.0, Part::Rump));
+    out.push(ell(s.hip, 0.31 * f, 0.25 * f, 0.0, Part::Rump));
+    leg_straight(&mut out, &s.legs.fh, true, false, 1, b, look);
+    leg_straight(&mut out, &s.legs.nh, true, false, 2, b, look);
+    // the tail, towards us over the rump
+    let tr = [0.06, 0.085, 0.09, 0.075, 0.035];
+    for i in 0..4 {
+        out.push(cap(s.tail[i], s.tail[i + 1], tr[i] * f, tr[i + 1] * f, Part::Tail).idx(i as u8).grp(5));
+    }
+    out
+}
+
+fn shapes_front(s: &Skel, b: &Body, look: &Look) -> Vec<Shape> {
+    let mut out = Vec::with_capacity(30);
+    let f = b.fluff;
+    // the back and hind legs, beyond
+    out.push(ell(s.hip, 0.24 * f, 0.15 * f, 0.0, Part::Rump).far(true));
+    leg_straight(&mut out, &s.legs.fh, true, true, 3, b, look);
+    leg_straight(&mut out, &s.legs.nh, true, true, 4, b, look);
+    // chest and neck
+    out.push(ell(add(s.sh, [0.0, 0.06]), 0.22 * f, 0.28 * f, 0.0, Part::Brisket));
+    out.push(cap(add(s.sh, [0.0, 0.14]), add(s.head, [0.0, -0.10]), 0.16 * f, 0.13 * f * b.head, Part::Neck));
+    leg_straight(&mut out, &s.legs.ff, false, false, 1, b, look);
+    leg_straight(&mut out, &s.legs.nf, false, false, 2, b, look);
+    face_front(&mut out, s, b, look);
+    out
 }
 
 /// Where a rope or food meets the mouth, in rig units.
@@ -695,6 +905,11 @@ fn sit_skel(b: &Body, t: f64, toy: Option<Toy>, tilt: bool, lean: f64) -> Skel {
 // ---------------------------------------------------------------- shapes
 
 pub fn shapes(s: &Skel, b: &Body, look: &Look) -> Vec<Shape> {
+    match s.view {
+        View::Back => return shapes_back(s, b, look),
+        View::Front => return shapes_front(s, b, look),
+        View::Side => {}
+    }
     let mut out: Vec<Shape> = Vec::with_capacity(40);
     let (f, lb, br, mr) = (b.fluff, b.limb, 1.0 + s.breath, look.min_r / look.r);
     let r = |x: f64| js_max(x, mr);
@@ -944,12 +1159,23 @@ pub fn paint(s: &Shape, _x: f64, _y: f64, look: &Look, nz: f64, hh: &Hit) -> i8 
             }
         }
         Part::Paw => CREAM,
+        // the back of the head: dark crown, tan nape
+        Part::BackHead => {
+            if uy > -0.15 + fr {
+                BLACK
+            } else {
+                TAN
+            }
+        }
         Part::Ball | Part::Coco | Part::FBall => paint_toy(s, hh),
         _ => TAN,
     }
 }
 
 pub fn eyes(out: &mut [u8], s: &Skel, b: &Body, look: &Look, fs: FrameSize, pal: &Palette) {
+    if s.view == View::Back {
+        return; // facing away
+    }
     let hs = b.head * if s.head_front { 1.15 } else { 1.0 };
     let ang = if s.head_front { s.tilt } else { s.head_rot };
     let pts: &[P] = if s.head_front { &[[-0.08, 0.04], [0.08, 0.04]] } else { &[[0.095, 0.04]] };

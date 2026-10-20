@@ -40,10 +40,15 @@ pub enum Anim {
     Nudge,
     /// Looking up at the screen, as if watching it with you (both species).
     Watch,
+    /// Dog, fetch: running into the screen (seen from behind), back out of
+    /// it (seen from the front), and back out with the toy in his mouth.
+    RunAway,
+    RunBack,
+    CarryBack,
 }
 
 impl Anim {
-    pub const ALL: [Anim; 16] = [
+    pub const ALL: [Anim; 19] = [
         Anim::Stand,
         Anim::Walk,
         Anim::Sit,
@@ -60,6 +65,9 @@ impl Anim {
         Anim::Flop,
         Anim::Nudge,
         Anim::Watch,
+        Anim::RunAway,
+        Anim::RunBack,
+        Anim::CarryBack,
     ];
 
     pub fn from_name(s: &str) -> Option<Anim> {
@@ -84,6 +92,9 @@ impl Anim {
             Anim::Flop => "flop",
             Anim::Nudge => "nudge",
             Anim::Watch => "watch",
+            Anim::RunAway => "run-away",
+            Anim::RunBack => "run-back",
+            Anim::CarryBack => "carry-back",
         }
     }
 }
@@ -282,9 +293,9 @@ pub fn period(pet: Pet, anim: Anim) -> f64 {
 pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
     match (pet, anim) {
         (Pet::Dog, Anim::Walk) => dog::walk_speed(&dog::body(look)),
-        (Pet::Dog, Anim::Run) => dog::RUN_SPEEDUP * dog::walk_speed(&dog::body(look)),
-        (Pet::Dog, Anim::Carry) => dog::CARRY_SPEEDUP * dog::walk_speed(&dog::body(look)),
-        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry) => rabbit::WALK_SPEED,
+        (Pet::Dog, Anim::Run | Anim::RunAway | Anim::RunBack) => dog::RUN_SPEEDUP * dog::walk_speed(&dog::body(look)),
+        (Pet::Dog, Anim::Carry | Anim::CarryBack) => dog::CARRY_SPEEDUP * dog::walk_speed(&dog::body(look)),
+        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack) => rabbit::WALK_SPEED,
         (Pet::Rabbit, Anim::Nudge) => 0.6 * rabbit::WALK_SPEED,
         _ => 0.0,
     }
@@ -293,7 +304,7 @@ pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
 /// Shapes the speed over one loop (`phase` in [0, 1)); 1.0 for constant speed.
 pub fn move_profile(pet: Pet, anim: Anim, phase: f64) -> f64 {
     match (pet, anim) {
-        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::Nudge) => rabbit::walk_move(phase),
+        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::Nudge | Anim::RunAway | Anim::RunBack | Anim::CarryBack) => rabbit::walk_move(phase),
         _ => 1.0,
     }
 }

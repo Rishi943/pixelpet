@@ -43,6 +43,15 @@ impl Brain {
     /// Move the pet's (x, depth) towards (`tx`, `td`) at `anim`'s speed.
     /// True on arrival.
     pub(super) fn go_to(&mut self, tx: f64, td: f64, anim: Anim, now: f64, dt: f64, u: f64) -> bool {
+        // Alex runs into the screen seen from behind, and back out of it
+        // seen from the front, when the run is mostly into or out of it
+        let into = DEPTH_COST * (td - self.depth).abs() > (tx - self.x).abs() / u;
+        let anim = match (self.pet, anim, into) {
+            (Pet::Dog, Anim::Run, true) if td > self.depth => Anim::RunAway,
+            (Pet::Dog, Anim::Run, true) => Anim::RunBack,
+            (Pet::Dog, Anim::Carry, true) if td < self.depth => Anim::CarryBack,
+            _ => anim,
+        };
         if (tx - self.x).abs() > 1.0 {
             self.facing = if tx > self.x { 1 } else { -1 };
         }

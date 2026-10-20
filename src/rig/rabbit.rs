@@ -183,7 +183,7 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Stretch => 1.5,
         Anim::Watch => 6.0,
         // not rabbit anims: the poses they fall back to
-        Anim::Run | Anim::Carry => 0.62,
+        Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack => 0.62,
         Anim::Wag | Anim::Lean => 5.2,
     }
 }
@@ -469,7 +469,7 @@ pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
             }
         }
         // not rabbit anims: the poses they fall back to
-        Anim::Run | Anim::Carry => pose(Anim::Walk, look, t),
+        Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack => pose(Anim::Walk, look, t),
         Anim::Wag | Anim::Lean => pose(Anim::Stand, look, t),
     }
 }
