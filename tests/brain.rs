@@ -25,6 +25,9 @@ struct Sim {
     cancel: bool,
     /// upward flick speed at the last release, px/s (set with the Up)
     flick_up: f64,
+    can_warp: bool,
+    /// every cursor move the brain asked for
+    warps: Vec<(i32, i32)>,
     last: Show,
 }
 
@@ -49,6 +52,7 @@ impl Sim {
             over_toy: false,
             cancel: false,
             flick_up: 0.0,
+            can_warp: true,
         };
         let last = brain.update(&inp, &s);
         Sim {
@@ -65,6 +69,8 @@ impl Sim {
             over_toy: false,
             cancel: false,
             flick_up: 0.0,
+            can_warp: true,
+            warps: vec![],
             last,
         }
     }
@@ -84,9 +90,15 @@ impl Sim {
             over_toy: self.over_toy,
             cancel: self.cancel,
             flick_up: self.flick_up,
+            can_warp: self.can_warp,
         };
         self.cancel = false;
         self.last = self.brain.update(&inp, &self.s);
+        // the app moves the real cursor where the brain asks
+        if let Some(w) = self.last.warp {
+            self.warps.push(w);
+            self.cursor = Some(w);
+        }
         self.last
     }
 
@@ -718,4 +730,134 @@ fn waiting_toy_drops() {
     let (seq, _, _) = fetch_run(&mut sim, 30.0);
     assert_eq!(seq.last(), Some(&Anim::Sit), "the pet sits by it: {seq:?}");
     assert!(sim.last.playing);
+}
+
+// ---------------------------------------------------------------- M2: tug-of-war
+
+/// The mouth as the brain sees it: the cursor is `units` from it, level.
+fn tug_start(pet: Pet, units: f64) -> Sim {
+    let mut sim = Sim::new(pet);
+    sim.run(1.0, |_, _| {});
+    let x = sim.last.x;
+    // start to the pet's right, so it faces right
+    sim.cursor = Some(((x + units * sim.unit_px) as i32, 1000));
+    sim.brain.choose(Choice::Tug, sim.now);
+    sim.step();
+    sim
+}
+
+fn mouth_dist(sim: &Sim) -> f64 {
+    let (mx, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
+    let (cx, cy) = sim.cursor.unwrap();
+    ((cx as f64 - mx).powi(2) + (cy as f64 - my).powi(2)).sqrt()
+}
+
+#[test]
+fn tug_pulls_the_cursor() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    assert!(sim.last.playing && sim.last.anim == Anim::Tug);
+    assert_eq!(sim.last.props.rope_to, sim.cursor, "the rope runs to the cursor");
+    let d0 = mouth_dist(&sim);
+    let start = sim.cursor.unwrap();
+    // wait for the first burst to finish
+    let mut seen = false;
+    for _ in 0..(2.2 / DT) as usize {
+        sim.step();
+        if !sim.warps.is_empty() {
+            seen = true;
+        }
+        if seen && sim.last.warp.is_none() {
+            break;
+        }
+    }
+    assert!(seen, "no burst within 1.6 s");
+    let end = sim.cursor.unwrap();
+    let moved = (((end.0 - start.0).pow(2) + (end.1 - start.1).pow(2)) as f64).sqrt();
+    assert!((moved - 0.6 * sim.unit_px).abs() <= 1.5, "a burst moved the cursor {moved} px, want {}", 0.6 * sim.unit_px);
+    assert!(mouth_dist(&sim) < d0, "pulled away from the mouth");
+    assert_eq!(sim.last.props.rope_to, sim.cursor);
+}
+
+#[test]
+fn tug_user_wins() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    let far = ((sim.last.x + 6.5 * sim.unit_px) as i32, 1000);
+    let mut anims = vec![];
+    for _ in 0..(2.2 / DT) as usize {
+        sim.cursor = Some(far); // the user holds it out there
+        let sh = sim.step();
+        anims.push(sh.anim);
+    }
+    assert!(anims.contains(&Anim::Hop), "no happy jump");
+    assert!(anims.iter().take((1.9 / DT) as usize).all(|a| *a == Anim::Tug), "won too early");
+    assert_eq!(sim.last.props.rope_to, None, "lets go of the rope");
+    sim.run(1.5, |_, _| {});
+    assert!(!sim.last.playing);
+}
+
+#[test]
+fn tug_pet_wins() {
+    let mut sim = tug_start(Pet::Rabbit, 3.0);
+    sim.over_pet = true; // dragged onto the pet
+    sim.step();
+    assert_eq!(sim.last.props.rope_to, None);
+    sim.run(1.1, |_, sh| assert_eq!(sh.anim, Anim::Tug, "victory shake"));
+    sim.over_pet = false;
+    sim.run(0.3, |_, _| {});
+    assert!(!sim.last.playing);
+}
+
+#[test]
+fn tug_without_warp() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    sim.can_warp = false;
+    sim.warps.clear();
+    sim.run(3.0, |_, _| {});
+    assert!(sim.warps.is_empty(), "asked to move a cursor that can't be moved");
+    assert!(sim.last.playing, "nothing ends it while the user holds still");
+    let far = ((sim.last.x + 6.5 * sim.unit_px) as i32, 1000);
+    let mut hop = false;
+    for _ in 0..(2.3 / DT) as usize {
+        sim.cursor = Some(far);
+        hop |= sim.step().anim == Anim::Hop;
+    }
+    assert!(hop, "the user still wins by distance");
+    // and the pet still wins when the cursor reaches it
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    sim.can_warp = false;
+    sim.over_pet = true;
+    sim.step();
+    assert_eq!(sim.last.props.rope_to, None);
+    assert_eq!(sim.last.anim, Anim::Tug);
+}
+
+#[test]
+fn tug_times_out() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    sim.can_warp = false;
+    let mut hop = false;
+    sim.run(19.5, |_, sh| hop |= sh.anim == Anim::Hop);
+    assert!(sim.last.playing, "ended before 20 s");
+    sim.run(1.0, |_, sh| hop |= sh.anim == Anim::Hop);
+    assert!(!sim.last.playing, "an untouched tug never ended");
+    assert!(!hop, "nobody won");
+}
+
+#[test]
+fn cancel_mid_tug() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    // into a burst
+    for _ in 0..(2.0 / DT) as usize {
+        sim.step();
+        if sim.last.warp.is_some() {
+            break;
+        }
+    }
+    assert!(sim.last.warp.is_some(), "no burst to cancel");
+    let n = sim.warps.len();
+    sim.cancel = true;
+    let sh = sim.step();
+    assert!(!sh.playing && sh.warp.is_none() && sh.props.rope_to.is_none());
+    sim.run(3.0, |_, _| {});
+    assert_eq!(sim.warps.len(), n, "moved the cursor after the cancel");
 }

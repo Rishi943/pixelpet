@@ -4,6 +4,7 @@
 
 pub mod fetch;
 pub mod pet;
+pub mod tug;
 pub mod wander;
 
 use crate::platform::Rect;
@@ -57,6 +58,8 @@ pub struct Inputs {
     /// How fast the cursor was moving upwards when the button was let go
     /// (px/s, over the last 100 ms); the app sets it with `Mouse::Up`.
     pub flick_up: f64,
+    /// The real cursor can be moved (tug pulls it); false on Wayland.
+    pub can_warp: bool,
 }
 
 /// A choice from the bubble.
@@ -98,12 +101,15 @@ pub struct Props {
     pub hearts: [Option<f64>; 6],
     /// When the crumbs started falling.
     pub crumbs: Option<f64>,
+    /// The pet is pulling the rope (it sags less).
+    pub taut: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Play {
     Pet { strokes: pet::Strokes, off_since: Option<f64> },
     Fetch { toy: Toy, st: fetch::State },
+    Tug { st: tug::State },
 }
 
 /// What to show this frame.
@@ -131,6 +137,8 @@ pub struct Show {
     /// Pet, fetch, tug or feed is going on.
     pub playing: bool,
     pub props: Props,
+    /// Move the real cursor here this frame (tug).
+    pub warp: Option<(i32, i32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -176,6 +184,8 @@ pub struct Brain {
     eyes_closed: bool,
     depth: f64,
     vp_x: f64,
+    warp: Option<(i32, i32)>,
+    rng: wander::Rng,
     /// last mouse input during play (for PLAY_IDLE_END)
     play_input_at: f64,
     last_cursor: Option<(i32, i32)>,
@@ -212,6 +222,8 @@ impl Brain {
             eyes_closed: false,
             depth: 0.0,
             vp_x: work.x as f64 + work.w as f64 / 2.0,
+            warp: None,
+            rng: wander::Rng::new(seed ^ 0x7469_6775),
             play_input_at: now,
             last_cursor: None,
         };
@@ -240,8 +252,12 @@ impl Brain {
                 self.mode = Mode::Play(Play::Fetch { toy, st: fetch::State::Waiting { since: now, at: None } });
                 self.show_anim(Anim::Stand, now);
             }
-            // tug and feed: M2 tasks 8-9
-            Choice::Tug | Choice::Feed(_) => {}
+            Choice::Tug => {
+                self.mode = Mode::Play(Play::Tug { st: tug::State::new(now) });
+                self.show_anim(Anim::Tug, now);
+            }
+            // feed: M2 task 9
+            Choice::Feed(_) => {}
         }
     }
 
@@ -256,6 +272,7 @@ impl Brain {
     fn play(&mut self, p: Play, inp: &Inputs, now: f64, dt: f64, lo: f64, hi: f64) {
         match p {
             Play::Fetch { toy, st } => self.fetch(toy, st, inp, now, dt, lo, hi),
+            Play::Tug { st } => self.tug(st, inp, now),
             Play::Pet { mut strokes, mut off_since } => {
                 if inp.over_pet {
                     off_since = None;
@@ -344,6 +361,7 @@ impl Brain {
     pub fn update(&mut self, inp: &Inputs, s: &Settings) -> Show {
         let now = inp.now;
         let dt = (now - self.last_now).clamp(0.0, MAX_DT);
+        self.warp = None;
         self.last_now = now;
         let u = inp.unit_px;
         let lo = inp.work.x as f64 + 1.2 * u;
@@ -535,6 +553,7 @@ impl Brain {
             eyes_closed: self.eyes_closed,
             playing: matches!(self.mode, Mode::Play(_)),
             props: self.props,
+            warp: self.warp,
         }
     }
 

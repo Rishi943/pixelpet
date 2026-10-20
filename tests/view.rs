@@ -10,7 +10,7 @@ fn px(img: &pixelpet::window::Rgba, x: usize, y: usize) -> [u8; 4] {
 }
 
 fn show(anim: Anim, anim_start: f64) -> Show {
-    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0, bubble: false, depth: 0.0, vp_x: 0.0, eyes_closed: false, playing: false, props: Default::default() }
+    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0, bubble: false, depth: 0.0, vp_x: 0.0, eyes_closed: false, playing: false, props: Default::default(), warp: None }
 }
 
 #[test]
@@ -127,4 +127,21 @@ fn eyes_closed_changes_the_frame() {
     assert_ne!(x, y, "closing the eyes changed nothing");
     // and the cache keys on it: the same view switches when asked
     assert_eq!(a.frame(&shut, 0.1, 3, false, 0.0).0.px, y);
+}
+
+#[test]
+fn mouth_is_on_the_head_in_the_image() {
+    let look = rig::look("classic");
+    for facing in [1i8, -1] {
+        let mut v = View::new(Pet::Dog, look);
+        let s = Show { facing, ..show(Anim::Stand, 0.0) };
+        let img = v.frame(&s, 0.0, 3, false, 0.0).0.clone();
+        let (mx, my) = v.mouth().expect("a mouth after a frame");
+        assert!(mx >= 0 && my >= 0 && (mx as usize) < img.w && (my as usize) < img.h);
+        // on the facing side of the image's middle, in the top half of the pet
+        assert!((mx - img.w as i32 / 2) * facing as i32 > 0, "facing {facing}: mouth x {mx} of {}", img.w);
+        let opaque_rows: Vec<usize> = (0..img.h).filter(|&y| (0..img.w).any(|x| img.px[(y * img.w + x) * 4 + 3] > 0)).collect();
+        let (top, bottom) = (opaque_rows[0] as i32, *opaque_rows.last().unwrap() as i32);
+        assert!(my > top && my < (top + bottom) / 2, "mouth y {my} not in the upper half of {top}..{bottom}");
+    }
 }

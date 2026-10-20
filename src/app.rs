@@ -89,6 +89,8 @@ pub struct App {
     last_show: Option<Show>,
     /// recent (time, cursor y) while the button is held, for the flick speed
     drag_trail: VecDeque<(f64, i32)>,
+    /// the OS let us move the cursor (tug); false after the first refusal
+    can_warp: bool,
 }
 
 fn seed() -> u64 {
@@ -131,6 +133,7 @@ impl App {
             esc_was_down: false,
             last_show: None,
             drag_trail: VecDeque::new(),
+            can_warp: true,
             mouse: VecDeque::new(),
             button_down: false,
             idle: None,
@@ -237,11 +240,17 @@ impl App {
             over_toy: self.over_toy(cursor),
             cancel: std::mem::take(&mut self.cancel_pending),
             flick_up,
+            can_warp: self.can_warp,
         };
         let show = self.brain.update(&inp, &self.settings);
         self.was_over = inp.over_pet;
         self.last_x = show.x;
         self.last_show = Some(show);
+        if let Some((x, y)) = show.warp {
+            if !self.platform.warp_cursor(x, y) {
+                self.can_warp = false; // the rope stretches instead
+            }
+        }
         self.present(&show, now, zoom, work);
         self.bubble_tick(el, &show, work);
         if self.open_menu_at_start && self.placed.is_some() {
@@ -302,7 +311,14 @@ impl App {
             let hy = ground as f64 - 1.5 * u - HEART_RISE * u * (age / HEART_LIFE) - img.h as f64;
             sprites.push(Sprite { img, x: hx.round() as i32, y: hy.round() as i32, part: Part::Effect });
         }
-        let scene = Scene { sprites, rope: None };
+        let rope = match (show.props.rope_to, self.view.mouth()) {
+            (Some(to), Some((mx, my))) => {
+                let sag = if show.props.taut { 0.2 } else { 0.4 } * u;
+                Some(((left + mx, top + my), to, zoom, sag))
+            }
+            _ => None,
+        };
+        let scene = Scene { sprites, rope };
         let (img, sx, sy) = scene.compose();
         if let Err(e) = win.present(&img, sx, sy, opacity) {
             eprintln!("present failed: {e}");
