@@ -25,3 +25,7 @@ features = [
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
 ]
+
+[[test]]
+name = "window_hit"
+harness = false

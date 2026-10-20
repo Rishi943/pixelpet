@@ -73,6 +73,7 @@ impl PetWindow {
             }
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
         }
+        hook(hwnd);
         Ok(PetWindow { win, hwnd, dib: None, shown: false })
     }
 
@@ -182,4 +183,39 @@ impl PetWindow {
         }
         Ok(())
     }
+}
+
+/// Window procedure hook on every pet and menu window.
+///
+/// Hit-test: once `UpdateLayeredWindow` has resized and moved the window,
+/// the default handler answers HTNOWHERE for points inside it and Windows
+/// drops the clicks (`tests/window_hit.rs`). Fully transparent pixels never
+/// get this far (the layered window passes them through first), so any
+/// point inside the window rect is ours: answer HTCLIENT.
+fn hook(hwnd: HWND) {
+    use windows_sys::Win32::UI::Shell::SetWindowSubclass;
+    unsafe {
+        SetWindowSubclass(hwnd, Some(hook_proc), 1, 0);
+    }
+}
+
+unsafe extern "system" fn hook_proc(
+    h: HWND,
+    msg: u32,
+    wp: windows_sys::Win32::Foundation::WPARAM,
+    lp: windows_sys::Win32::Foundation::LPARAM,
+    _id: usize,
+    _data: usize,
+) -> windows_sys::Win32::Foundation::LRESULT {
+    use windows_sys::Win32::UI::Shell::DefSubclassProc;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTCLIENT, HTNOWHERE, WM_NCHITTEST};
+    let mut r = DefSubclassProc(h, msg, wp, lp);
+    if msg == WM_NCHITTEST && r == HTNOWHERE as isize {
+        let (x, y) = ((lp & 0xFFFF) as i16 as i32, ((lp >> 16) & 0xFFFF) as i16 as i32);
+        let mut wr: windows_sys::Win32::Foundation::RECT = std::mem::zeroed();
+        if GetWindowRect(h, &mut wr) != 0 && x >= wr.left && x < wr.right && y >= wr.top && y < wr.bottom {
+            r = HTCLIENT as isize;
+        }
+    }
+    r
 }
