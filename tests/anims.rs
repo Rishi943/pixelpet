@@ -157,3 +157,81 @@ fn eyes_close_on_request() {
         _ => unreachable!(),
     }
 }
+
+// ---------------------------------------------------------------- rabbit
+
+const BUN_NEW: [Anim; 5] = [Anim::Eat, Anim::Flop, Anim::Nudge, Anim::Tug, Anim::Stretch];
+
+fn bun_at(a: Anim, t: f64) -> rig::rabbit::Skel {
+    match rig::pose(Pet::Rabbit, a, look(), t, None) {
+        Skel::Rabbit(s) => s,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn new_rabbit_anims_render() {
+    for a in BUN_NEW {
+        for i in 0..=20 {
+            let t = i as f64 * 0.1;
+            let f = rig::render(&rig::pose(Pet::Rabbit, a, look(), t, None), look(), false);
+            if let Err(e) = renders_inside(&f, 300) {
+                panic!("{a:?} t={t}: {e}");
+            }
+        }
+    }
+}
+
+#[test]
+fn flop_lies_on_its_side() {
+    let stand = bun_at(Anim::Stand, 0.0);
+    for t in [1.0, 2.0, 3.9] {
+        let s = bun_at(Anim::Flop, t);
+        assert!(s.flat >= 0.9, "t={t}: flat {}", s.flat);
+        assert_eq!(s.eyes, 0.0, "t={t}");
+        let top = [s.hip, s.sh, s.head, s.tail, s.nf[0], s.nf[1], s.ff[0], s.ff[1], s.nh[0], s.nh[1], s.fh[0], s.fh[1]]
+            .iter()
+            .map(|p| p[1])
+            .fold(f64::MIN, f64::max);
+        assert!(top < stand.head[1] - 0.3, "t={t}: highest joint {top}");
+    }
+}
+
+#[test]
+fn nudge_keeps_the_nose_down() {
+    let stand = bun_at(Anim::Stand, 0.0);
+    for t in times(rig::period(Pet::Rabbit, Anim::Nudge), 14) {
+        assert!(bun_at(Anim::Nudge, t).head[1] <= stand.head[1] - 0.2, "t={t}");
+    }
+}
+
+#[test]
+fn bun_tug_hops_back() {
+    let p = rig::period(Pet::Rabbit, Anim::Tug);
+    let xs: Vec<f64> = times(p, 32).map(|t| bun_at(Anim::Tug, t).hip[0]).collect();
+    let back = xs.iter().cloned().fold(f64::MAX, f64::min);
+    assert!(back < xs[0] - 0.05, "hips go back: {back} vs {}", xs[0]);
+    assert!((xs[0] - bun_at(Anim::Tug, p - 1e-6).hip[0]).abs() < 0.02, "and return");
+    let sw: Vec<f64> = times(p, 32).map(|t| bun_at(Anim::Tug, t).ear_sw).collect();
+    assert!(sw.iter().any(|&x| x > 0.05) && sw.iter().any(|&x| x < -0.05), "ears swing");
+}
+
+#[test]
+fn bun_eat_chews() {
+    let p = rig::period(Pet::Rabbit, Anim::Eat);
+    let stand = bun_at(Anim::Stand, 0.0);
+    let noses: Vec<f64> = times(p, 40).map(|t| bun_at(Anim::Eat, t).nose).collect();
+    let rises = noses.windows(2).filter(|w| w[1] > w[0]).count();
+    assert!(rises >= 2, "nose twitched {rises} times");
+    for t in times(p, 10) {
+        assert!(bun_at(Anim::Eat, t).head[1] < stand.head[1], "t={t}");
+    }
+}
+
+#[test]
+fn rabbit_fallbacks_do_not_panic() {
+    for a in Anim::ALL {
+        let f = rig::render(&rig::pose(Pet::Rabbit, a, look(), 0.3, None), look(), false);
+        assert!(f.rgba.chunks(4).any(|p| p[3] > 0), "{a:?}");
+    }
+}

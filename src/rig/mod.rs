@@ -246,7 +246,8 @@ pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
         (Pet::Dog, Anim::Walk) => dog::walk_speed(&dog::body(look)),
         (Pet::Dog, Anim::Run) => dog::RUN_SPEEDUP * dog::walk_speed(&dog::body(look)),
         (Pet::Dog, Anim::Carry) => dog::CARRY_SPEEDUP * dog::walk_speed(&dog::body(look)),
-        (Pet::Rabbit, Anim::Walk) => rabbit::WALK_SPEED,
+        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry) => rabbit::WALK_SPEED,
+        (Pet::Rabbit, Anim::Nudge) => 0.6 * rabbit::WALK_SPEED,
         _ => 0.0,
     }
 }
@@ -254,7 +255,7 @@ pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
 /// Shapes the speed over one loop (`phase` in [0, 1)); 1.0 for constant speed.
 pub fn move_profile(pet: Pet, anim: Anim, phase: f64) -> f64 {
     match (pet, anim) {
-        (Pet::Rabbit, Anim::Walk) => rabbit::walk_move(phase),
+        (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::Nudge) => rabbit::walk_move(phase),
         _ => 1.0,
     }
 }

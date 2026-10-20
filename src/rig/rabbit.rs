@@ -176,9 +176,14 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Tilt => 4.0,
         Anim::Hop => 1.2,
         Anim::Sleep => 9.6,
-        // play anims: fallbacks until the bun has its own (M2 Task 2)
-        Anim::Run | Anim::Carry | Anim::Nudge => 0.62,
-        Anim::Eat | Anim::Wag | Anim::Lean | Anim::Tug | Anim::Stretch | Anim::Flop => 5.2,
+        Anim::Eat => 0.8,
+        Anim::Flop => 4.0,
+        Anim::Nudge => 0.7,
+        Anim::Tug => 0.8,
+        Anim::Stretch => 1.5,
+        // not rabbit anims: the poses they fall back to
+        Anim::Run | Anim::Carry => 0.62,
+        Anim::Wag | Anim::Lean => 5.2,
     }
 }
 
@@ -335,9 +340,121 @@ pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
                 ..l
             }
         }
-        // play anims: fallbacks until the bun has its own (M2 Task 2)
-        Anim::Run | Anim::Carry | Anim::Nudge => pose(Anim::Walk, look, t),
-        Anim::Eat | Anim::Wag | Anim::Lean | Anim::Tug | Anim::Stretch | Anim::Flop => pose(Anim::Stand, look, t),
+        // head down at the food, nose and jaw going
+        Anim::Eat => {
+            let chew = (t * TAU / 0.4).sin();
+            Skel {
+                sh: [0.14, 0.36],
+                head: [0.42, 0.24 + 0.012 * chew],
+                head_rot: -0.6,
+                nose: (t * 12.0).floor() % 2.0,
+                ear_n: 0.25,
+                ear_f: 0.5,
+                eyes: blink(t),
+                ..l
+            }
+        }
+        // a flop: rolls onto its side and lies there, eyes closed
+        Anim::Flop => {
+            let br = (t * TAU / 3.2).sin();
+            let side = Skel {
+                hip: [-0.30, 0.15],
+                sh: [0.12, 0.17],
+                head: [0.40, 0.20 + 0.06 * (b.head - 1.0)],
+                head_rot: -0.25,
+                flat: 1.0,
+                nf: [[0.22, 0.12], [0.44, 0.10]],
+                ff: [[0.24, 0.16], [0.46, 0.15]],
+                nh: [[-0.40, 0.12], [-0.64, 0.10]],
+                fh: [[-0.38, 0.16], [-0.60, 0.15]],
+                tail: [-0.50, 0.16],
+                ear_n: 1.6,
+                ear_f: 1.5,
+                eyes: 0.0,
+                breath: 0.03 * br,
+                ..l
+            };
+            let k = clamp(t / 0.6, 0.0, 1.0);
+            lerp(&l, &side, k * k * (3.0 - 2.0 * k))
+        }
+        // pushing the toy home: short low hops, nose down behind it
+        Anim::Nudge => {
+            let p = (t / 0.7) % 1.0;
+            let low = Skel { sh: [0.16, 0.38], head: [0.44, 0.40], head_rot: -0.35, ear_n: 0.3, ..l };
+            let push = Skel {
+                hip: [-0.14, 0.36],
+                sh: [0.24, 0.42],
+                head: [0.52, 0.42],
+                head_rot: -0.35,
+                nf: [[0.30, 0.32], [0.44, 0.16]],
+                ff: [[0.32, 0.34], [0.47, 0.18]],
+                nh: [[-0.28, 0.24], [-0.52, 0.14]],
+                fh: [[-0.24, 0.25], [-0.47, 0.16]],
+                tail: [-0.40, 0.40],
+                ear_n: 0.38,
+                ..l
+            };
+            let land = Skel {
+                hip: [-0.04, 0.38],
+                sh: [0.30, 0.30],
+                head: [0.54, 0.34],
+                head_rot: -0.45,
+                nf: [[0.36, 0.20], [0.44, 0.035]],
+                ff: [[0.39, 0.21], [0.48, 0.04]],
+                nh: [[-0.14, 0.28], [0.06, 0.18]],
+                fh: [[-0.10, 0.29], [0.10, 0.20]],
+                tail: [-0.30, 0.46],
+                ear_n: 0.3,
+                ..l
+            };
+            blend(&[(0.0, low), (0.22, push), (0.42, land), (0.66, low), (1.0, low)], p)
+        }
+        // tug-of-war: front feet planted, a little hop back, head shaking
+        Anim::Tug => {
+            let p = (t / 0.8) % 1.0;
+            let base = Skel {
+                hip: [-0.24, 0.28],
+                sh: [0.10, 0.38],
+                head: [0.34, 0.56 + 0.10 * (b.head - 1.0)],
+                nf: [[0.18, 0.26], [0.34, 0.035]],
+                ff: [[0.21, 0.27], [0.38, 0.04]],
+                ear_n: 0.3,
+                ..l
+            };
+            let back = Skel {
+                hip: [-0.36, 0.34],
+                sh: [0.0, 0.44],
+                head: [0.26, 0.62 + 0.10 * (b.head - 1.0)],
+                nh: [[-0.52, 0.10], [-0.07, 0.09]],
+                fh: [[-0.47, 0.11], [-0.03, 0.10]],
+                tail: [-0.61, 0.34],
+                ..base
+            };
+            let s = blend(&[(0.0, base), (0.2, base), (0.4, back), (0.7, base), (1.0, base)], p);
+            Skel { head_rot: -0.15 + 0.21 * (p * TAU * 3.0).sin(), ear_sw: 0.3 * (p * TAU * 2.0).sin(), nose: twitch(t), ..s }
+        }
+        // waking: front paws out and chest down, back legs long, once
+        Anim::Stretch => {
+            let k = ramp(t.min(1.5), 0.5, 1.0, 1.5);
+            let long = Skel {
+                hip: [-0.30, 0.30],
+                sh: [0.22, 0.24],
+                head: [0.50, 0.42 + 0.10 * (b.head - 1.0)],
+                head_rot: -0.2,
+                nf: [[0.32, 0.15], [0.60, 0.035]],
+                ff: [[0.35, 0.16], [0.64, 0.04]],
+                nh: [[-0.45, 0.10], [-0.70, 0.05]],
+                fh: [[-0.42, 0.11], [-0.66, 0.06]],
+                tail: [-0.52, 0.34],
+                ear_n: 0.6,
+                ear_f: 0.7,
+                ..l
+            };
+            lerp(&l, &long, k)
+        }
+        // not rabbit anims: the poses they fall back to
+        Anim::Run | Anim::Carry => pose(Anim::Walk, look, t),
+        Anim::Wag | Anim::Lean => pose(Anim::Stand, look, t),
     }
 }
 

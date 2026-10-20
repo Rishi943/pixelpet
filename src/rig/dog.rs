@@ -376,21 +376,6 @@ fn gait(rest: Paws, p: f64, offs: [f64; 4], duty: f64, stride: f64, lift: f64) -
     (Paws { nf: paws[0], ff: paws[1], nh: paws[2], fh: paws[3] }, flex)
 }
 
-/// 0 to 1 by `a`, held, back to 0 from `b` to `c` (smoothstep edges).
-fn ramp(t: f64, a: f64, b: f64, c: f64) -> f64 {
-    let sm = |x: f64| {
-        let x = clamp(x, 0.0, 1.0);
-        x * x * (3.0 - 2.0 * x)
-    };
-    if t < a {
-        sm(t / a)
-    } else if t < b {
-        1.0
-    } else {
-        1.0 - sm((t - b) / (c - b))
-    }
-}
-
 /// Fetch: a bounding gallop, front pair then hind pair, ears back, tail out.
 fn run(b: &Body, t: f64, toy: Option<Toy>) -> Skel {
     let g = geom(b);

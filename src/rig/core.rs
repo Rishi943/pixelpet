@@ -34,6 +34,21 @@ pub fn rot(a: P, t: f64) -> P {
 pub fn clamp(x: f64, a: f64, b: f64) -> f64 {
     js_max(a, js_min(b, x))
 }
+/// 0 to 1 by `a`, held, back to 0 from `b` to `c` (smoothstep edges).
+pub fn ramp(t: f64, a: f64, b: f64, c: f64) -> f64 {
+    let sm = |x: f64| {
+        let x = clamp(x, 0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    if t < a {
+        sm(t / a)
+    } else if t < b {
+        1.0
+    } else {
+        1.0 - sm((t - b) / (c - b))
+    }
+}
+
 pub fn mix(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
