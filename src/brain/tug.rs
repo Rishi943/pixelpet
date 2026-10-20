@@ -31,11 +31,14 @@ pub struct State {
     still_since: f64,
     /// someone won: the anim plays until then, then play ends
     end: Option<f64>,
+    /// the cursor has been off the pet since tug began (it starts on the
+    /// bubble, right over the pet, which still counts as on it)
+    armed: bool,
 }
 
 impl State {
     pub fn new(now: f64) -> State {
-        State { next_burst: now, burst: None, far_since: None, anchor: None, still_since: now, end: None }
+        State { next_burst: now, burst: None, far_since: None, anchor: None, still_since: now, end: None, armed: false }
     }
 }
 
@@ -79,7 +82,10 @@ impl Brain {
         let dist = ((c.0 - mx).powi(2) + (c.1 - my).powi(2)).sqrt();
 
         // dragged onto the pet: the pet wins
-        if inp.over_pet {
+        if !inp.over_pet {
+            st.armed = true;
+        }
+        if inp.over_pet && st.armed {
             self.props.rope_to = None;
             st.end = Some(now + VICTORY);
             self.mode = Mode::Play(Play::Tug { st });

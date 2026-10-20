@@ -977,3 +977,23 @@ fn cancel_mid_meal() {
     let sh = sim.step();
     assert!(!sh.playing && sh.props.food.is_none() && sh.props.crumbs.is_none());
 }
+
+#[test]
+fn tug_chosen_from_the_bubble_is_not_lost_at_once() {
+    // chosen from the bubble right over the pet: the cursor still counts as
+    // on the pet (hover is sticky there); that must not hand the pet the win
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    sim.cursor = Some((sim.last.x as i32, 940));
+    sim.over_pet = true;
+    sim.brain.choose(Choice::Tug, sim.now);
+    sim.run(1.0, |_, sh| assert!(sh.props.rope_to.is_some(), "the rope went at once"));
+    assert!(sim.last.playing);
+    // once the cursor has left the pet, coming back onto it is a loss
+    sim.over_pet = false;
+    sim.cursor = Some(((sim.last.x + 3.0 * sim.unit_px) as i32, 1000));
+    sim.run(0.3, |_, _| {});
+    sim.over_pet = true;
+    sim.step();
+    assert_eq!(sim.last.props.rope_to, None, "dragged onto the pet: the pet wins");
+}
