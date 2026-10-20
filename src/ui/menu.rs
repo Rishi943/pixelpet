@@ -13,6 +13,9 @@ pub enum Action {
     SetFullscreen(FullscreenMode),
     SetFullscreenOpacity(u8),
     ToggleAutostart,
+    /// The Quit row: asks "Quit PixelPet? Yes | No" instead of quitting.
+    AskQuit,
+    CancelQuit,
     Quit,
 }
 
@@ -34,7 +37,7 @@ pub fn apply(a: &Action, s: &mut Settings) {
         Action::SetFullscreen(f) => s.fullscreen = f,
         Action::SetFullscreenOpacity(o) => s.fullscreen_opacity = o,
         Action::ToggleAutostart => s.autostart = !s.autostart,
-        Action::Quit => {}
+        Action::AskQuit | Action::CancelQuit | Action::Quit => {}
     }
 }
 
@@ -56,6 +59,9 @@ const SEP: i32 = font::W as i32 + 2;
 struct Line {
     heading: Option<usize>,
     cells: Vec<usize>,
+    /// Options start right after this line's own heading, not in the
+    /// shared column (so a long heading doesn't shift every line).
+    own_column: bool,
 }
 
 /// A laid-out cell: row index and rect `(x, y, w, h)` in art px.
@@ -80,6 +86,15 @@ const STEPS: [u8; 4] = [25, 50, 75, 100];
 
 impl Menu {
     pub fn new(s: &Settings) -> Menu {
+        Menu::build(s, false)
+    }
+
+    /// The menu with its last line asking "Quit PixelPet? Yes | No".
+    pub fn confirming_quit(s: &Settings) -> Menu {
+        Menu::build(s, true)
+    }
+
+    fn build(s: &Settings, confirm_quit: bool) -> Menu {
         let mut rows: Vec<Row> = vec![];
         let mut lines: Vec<Line> = vec![];
         let mut line = |rows: &mut Vec<Row>, heading: Option<&str>, opts: Vec<(String, Action, bool)>| {
@@ -92,7 +107,7 @@ impl Menu {
                 rows.push(Row { label, action: Some(action), checked });
                 cells.push(rows.len() - 1);
             }
-            lines.push(Line { heading: h, cells });
+            lines.push(Line { heading: h, cells, own_column: false });
         };
         line(
             &mut rows,
@@ -130,11 +145,20 @@ impl Menu {
         );
         let startup = format!("Launch on startup [{}]", if s.autostart { "on" } else { "off" });
         line(&mut rows, None, vec![(startup, Action::ToggleAutostart, s.autostart)]);
-        line(&mut rows, None, vec![("Quit".into(), Action::Quit, false)]);
+        if confirm_quit {
+            line(
+                &mut rows,
+                Some("Quit PixelPet?"),
+                vec![("Yes".into(), Action::Quit, false), ("No".into(), Action::CancelQuit, false)],
+            );
+            lines.last_mut().unwrap().own_column = true;
+        } else {
+            line(&mut rows, None, vec![("Quit".into(), Action::AskQuit, false)]);
+        }
 
         // layout: headings in one column, options after the widest heading
         let tw = |r: usize| font::text_width(&rows[r].label) as i32;
-        let head_w = lines.iter().filter_map(|l| l.heading).map(tw).max().unwrap_or(0);
+        let head_w = lines.iter().filter(|l| !l.own_column).filter_map(|l| l.heading).map(tw).max().unwrap_or(0);
         let mut cells = vec![];
         let mut seps = vec![];
         let mut right = 0;
@@ -143,7 +167,11 @@ impl Menu {
             if let Some(h) = l.heading {
                 cells.push(Cell { row: h, x: INSET, y, w: tw(h) });
             }
-            let mut x = if l.heading.is_some() { INSET + head_w + HEADING_GAP } else { INSET - CELL_PAD_X };
+            let mut x = match l.heading {
+                Some(h) if l.own_column => INSET + tw(h) + HEADING_GAP,
+                Some(_) => INSET + head_w + HEADING_GAP,
+                None => INSET - CELL_PAD_X,
+            };
             for (k, &r) in l.cells.iter().enumerate() {
                 if k > 0 {
                     seps.push((x, y));

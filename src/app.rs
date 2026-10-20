@@ -167,6 +167,8 @@ impl App {
                 "size=M" => self.act(Action::SetSize(crate::settings::Size::M), el),
                 "size=L" => self.act(Action::SetSize(crate::settings::Size::L), el),
                 "size=XL" => self.act(Action::SetSize(crate::settings::Size::XL), el),
+                "ask-quit" => self.act(Action::AskQuit, el),
+                "cancel-quit" => self.act(Action::CancelQuit, el),
                 _ => {}
             }
         }
@@ -314,6 +316,20 @@ impl App {
         if action == Action::Quit {
             self.close_menu();
             el.exit();
+            return;
+        }
+        if matches!(action, Action::AskQuit | Action::CancelQuit) {
+            let menu = if action == Action::AskQuit {
+                Menu::confirming_quit(&self.settings)
+            } else {
+                Menu::new(&self.settings)
+            };
+            if let Some(scale) = self.menu.as_ref().map(|m| m.scale) {
+                let (left, top) = self.menu_place(&menu, scale, self.platform.work_area());
+                let m = self.menu.as_mut().unwrap();
+                (m.menu, m.left, m.top) = (menu, left, top);
+            }
+            self.draw_menu();
             return;
         }
         let old_pet = self.settings.pet;

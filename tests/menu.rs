@@ -35,7 +35,7 @@ fn hit_finds_cells() {
         let (x, y) = m.cell_centre("L").expect("an L cell");
         assert_eq!(m.hit(x * scale as i32, y * scale as i32, scale), Some(Action::SetSize(Size::L)), "scale {scale}");
         let (x, y) = m.cell_centre("Quit").unwrap();
-        assert_eq!(m.hit(x * scale as i32, y * scale as i32, scale), Some(Action::Quit));
+        assert_eq!(m.hit(x * scale as i32, y * scale as i32, scale), Some(Action::AskQuit));
         assert_eq!(m.hit(0, 0, scale), None, "panel border");
         let (x, y) = m.cell_centre("Pet:").unwrap();
         assert_eq!(m.hit(x * scale as i32, y * scale as i32, scale), None, "a heading is not clickable");
@@ -95,4 +95,23 @@ fn font_covers_menu_text() {
     for c in '!'..='~' {
         assert!(font::glyph(c).unwrap().iter().any(|r| *r != 0), "{c:?} is blank");
     }
+}
+
+#[test]
+fn quit_asks_first() {
+    let s = Settings::default();
+    let m = Menu::new(&s);
+    let (x, y) = m.cell_centre("Quit").unwrap();
+    assert_eq!(m.hit(x, y, 1), Some(Action::AskQuit), "the first click only asks");
+    let m = Menu::confirming_quit(&s);
+    assert_eq!(m.lines()[6], "Quit PixelPet? Yes | No");
+    let (x, y) = m.cell_centre("Yes").unwrap();
+    assert_eq!(m.hit(x, y, 1), Some(Action::Quit));
+    let (x, y) = m.cell_centre("No").unwrap();
+    assert_eq!(m.hit(x, y, 1), Some(Action::CancelQuit));
+    // asking changes no setting
+    let mut t = s.clone();
+    apply(&Action::AskQuit, &mut t);
+    apply(&Action::CancelQuit, &mut t);
+    assert_eq!(t, s);
 }
