@@ -186,9 +186,12 @@ mod tests {
         assert!((0.0..3600.0).contains(&s), "{s}");
     }
 
+    /// Known either way on Windows. (It is `Some(true)` whenever a fullscreen
+    /// video or game is in front, so the value itself depends on the desktop;
+    /// `examples/probe_fullscreen.rs` shows what it sees.)
     #[test]
     fn fullscreen_is_known() {
-        assert_eq!(Win.fullscreen_app(), Some(false));
+        assert!(Win.fullscreen_app().is_some());
     }
 
     #[test]
