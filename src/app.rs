@@ -460,6 +460,9 @@ impl App {
             brain.pin(self.pin);
             self.brain = brain;
             self.view = View::new(pet, self.look);
+            // the bubble's Play and Feed pages are per pet
+            self.bubble = Bubble::new(pet);
+            self.bubble_open = None;
             self.presented = None;
         }
         if let Some(m) = self.menu.as_mut() {
