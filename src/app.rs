@@ -2,9 +2,10 @@
 //! tick -> read platform -> brain update -> rig render (cached) -> present.
 
 use crate::brain::{Brain, Inputs, Mouse, Show};
-use crate::platform::{self, Platform};
+use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
+use crate::ui::menu::{self, Action, Menu};
 use crate::view::View;
 use crate::window::PetWindow;
 use std::collections::VecDeque;
@@ -13,18 +14,35 @@ use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, NamedKey};
 use winit::window::WindowId;
 
 /// Idle and fullscreen are polled this often (seconds).
 const POLL_EVERY: f64 = 2.0;
+/// The menu closes when the cursor has been away from it this long.
+const MENU_AWAY_CLOSE: f64 = 4.0;
+
+/// The open right-click menu.
+struct MenuOpen {
+    win: PetWindow,
+    menu: Menu,
+    scale: u32,
+    left: i32,
+    top: i32,
+    last_over: f64,
+}
 
 pub struct App {
     platform: Box<dyn Platform>,
     look: &'static Look,
     settings: Settings,
+    settings_path: PathBuf,
+    exe: PathBuf,
     start: Instant,
     exit_after: Option<f64>,
+    pin: Option<Anim>,
     win: Option<PetWindow>,
+    menu: Option<MenuOpen>,
     brain: Brain,
     view: View,
     mouse: VecDeque<Mouse>,
@@ -36,8 +54,11 @@ pub struct App {
     presented: Option<(u64, i32, i32, u8)>,
     /// top-left of the image on screen, for hit-testing the cursor
     placed: Option<(i32, i32)>,
+    last_x: f64,
     hidden: bool,
     next_tick: Instant,
+    /// PIXELPET_OPEN_MENU: open the menu (without focus) once the pet is shown
+    open_menu_at_start: bool,
 }
 
 fn seed() -> u64 {
@@ -48,8 +69,8 @@ impl App {
     pub fn new() -> App {
         let platform = platform::native();
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("PixelPet.exe"));
-        let path = settings::settings_path(settings::current_os(), &exe, &|k| std::env::var(k).ok());
-        let settings = settings::load(&path);
+        let settings_path = settings::settings_path(settings::current_os(), &exe, &|k| std::env::var(k).ok());
+        let settings = settings::load(&settings_path);
         // launch on startup follows the program if it moved
         let current = platform.autostart();
         if settings::autostart_needs_update(current.as_deref(), &exe, settings.autostart) {
@@ -65,9 +86,13 @@ impl App {
             platform,
             look,
             settings,
+            settings_path,
+            exe,
             start: Instant::now(),
             exit_after,
+            pin,
             win: None,
+            menu: None,
             brain,
             view: View::new(pet, look),
             mouse: VecDeque::new(),
@@ -77,8 +102,10 @@ impl App {
             last_poll: None,
             presented: None,
             placed: None,
+            last_x: 0.0,
             hidden: true,
             next_tick: Instant::now(),
+            open_menu_at_start: std::env::var("PIXELPET_OPEN_MENU").is_ok_and(|v| v.trim() == "1"),
         }
     }
 
@@ -110,6 +137,7 @@ impl App {
         }
         let cursor = self.platform.cursor_pos();
         let work = self.platform.work_area();
+        self.menu_tick(now, cursor);
         let mouse = match self.mouse.pop_front() {
             Some(m) => m,
             None if self.button_down => cursor.map_or(Mouse::None, |(x, y)| Mouse::Move(x, y)),
@@ -127,7 +155,12 @@ impl App {
             fullscreen: self.fullscreen,
         };
         let show = self.brain.update(&inp, &self.settings);
+        self.last_x = show.x;
         self.present(&show, now, zoom, work.bottom());
+        if self.open_menu_at_start && self.placed.is_some() {
+            self.open_menu_at_start = false;
+            self.open_menu(el, false);
+        }
         let busy = self.button_down || show.lift > 0.0 || !self.mouse.is_empty();
         let hz = if busy { 30.0 } else { 12.0 };
         self.next_tick = Instant::now() + Duration::from_secs_f64(1.0 / hz);
@@ -164,6 +197,124 @@ impl App {
         self.presented = Some(key);
         self.placed = Some((left, top));
     }
+
+    // ---------------------------------------------------------------- menu
+
+    /// Open the menu beside the pet, kept inside the work area.
+    fn open_menu(&mut self, el: &ActiveEventLoop, focus: bool) {
+        self.close_menu();
+        let win = match PetWindow::new(el, true) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("PixelPet: could not open the menu: {e}");
+                return;
+            }
+        };
+        let work = self.platform.work_area();
+        let menu = Menu::new(&self.settings);
+        let scale = self.settings.size.zoom();
+        let (left, top) = self.menu_place(&menu, scale, work);
+        self.menu = Some(MenuOpen { win, menu, scale, left, top, last_over: self.now() });
+        self.draw_menu();
+        if let (Some(m), true) = (&self.menu, focus) {
+            m.win.focus();
+        }
+    }
+
+    fn menu_place(&self, menu: &Menu, scale: u32, work: Rect) -> (i32, i32) {
+        let (mw, mh) = menu.size();
+        let (mw, mh) = ((mw as u32 * scale) as i32, (mh as u32 * scale) as i32);
+        let pl = self.placed.map_or(work.x + work.w / 2, |p| p.0);
+        let pw = self.view.image().w as i32;
+        let right = work.x + work.w;
+        // beside the pet: right of it if there is room, else left of it;
+        // its bottom on the ground line
+        let left = if pl + pw + mw <= right { pl + pw } else { pl - mw };
+        let left = left.clamp(work.x, (right - mw).max(work.x));
+        let top = (work.bottom() - mh).max(work.y);
+        (left, top)
+    }
+
+    fn draw_menu(&mut self) {
+        if let Some(m) = self.menu.as_mut() {
+            let img = m.menu.draw(m.scale);
+            if let Err(e) = m.win.present(&img, m.left, m.top, 255) {
+                eprintln!("PixelPet: menu present failed: {e}");
+            }
+        }
+    }
+
+    fn close_menu(&mut self) {
+        self.menu = None; // dropping the window closes it
+    }
+
+    fn menu_tick(&mut self, now: f64, cursor: Option<(i32, i32)>) {
+        let Some(m) = self.menu.as_mut() else { return };
+        let (mw, mh) = m.menu.size();
+        let (w, h) = ((mw as u32 * m.scale) as i32, (mh as u32 * m.scale) as i32);
+        if let Some((cx, cy)) = cursor {
+            if cx >= m.left && cy >= m.top && cx < m.left + w && cy < m.top + h {
+                m.last_over = now;
+            }
+        }
+        if now - m.last_over > MENU_AWAY_CLOSE {
+            self.close_menu();
+        }
+    }
+
+    fn menu_click(&mut self, el: &ActiveEventLoop) {
+        let (Some(m), Some((cx, cy))) = (self.menu.as_ref(), self.platform.cursor_pos()) else { return };
+        let Some(action) = m.menu.hit(cx - m.left, cy - m.top, m.scale) else { return };
+        self.act(action, el);
+    }
+
+    /// Apply a menu choice: settings change, side effects, save, redraw.
+    fn act(&mut self, action: Action, el: &ActiveEventLoop) {
+        if action == Action::Quit {
+            self.close_menu();
+            el.exit();
+            return;
+        }
+        let old_pet = self.settings.pet;
+        menu::apply(&action, &mut self.settings);
+        if action == Action::ToggleAutostart {
+            let target = self.settings.autostart.then_some(self.exe.as_path());
+            if let Err(e) = self.platform.set_autostart(target) {
+                eprintln!("PixelPet: launch on startup: {e}");
+                self.settings.autostart = !self.settings.autostart; // didn't happen
+            }
+        }
+        if let Err(e) = settings::save(&self.settings_path, &self.settings) {
+            eprintln!("PixelPet: could not save settings: {e}");
+        }
+        if self.settings.pet != old_pet {
+            let pet = self.settings.pet.pet();
+            let mut brain = Brain::new(pet, seed(), self.now(), self.platform.work_area());
+            brain.place(self.last_x);
+            brain.pin(self.pin);
+            self.brain = brain;
+            self.view = View::new(pet, self.look);
+            self.presented = None;
+        }
+        if let Some(m) = self.menu.as_mut() {
+            m.menu = Menu::new(&self.settings);
+            m.scale = self.settings.size.zoom();
+        }
+        if matches!(action, Action::SetSize(_)) {
+            self.presented = None;
+            if let Some(m) = &self.menu {
+                let (left, top) = self.menu_place(&m.menu, m.scale, self.platform.work_area());
+                let m = self.menu.as_mut().unwrap();
+                m.left = left;
+                m.top = top;
+            }
+        }
+        self.draw_menu();
+    }
+
+    fn is_menu(&self, id: WindowId) -> bool {
+        self.menu.as_ref().is_some_and(|m| m.win.id() == id)
+    }
 }
 
 impl Default for App {
@@ -186,7 +337,17 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, ev: WindowEvent) {
+    fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
+        if self.is_menu(id) {
+            match ev {
+                WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.menu_click(el),
+                WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.close_menu(),
+                WindowEvent::KeyboardInput { event, .. } if event.logical_key == Key::Named(NamedKey::Escape) => self.close_menu(),
+                WindowEvent::Focused(false) => self.close_menu(),
+                _ => {}
+            }
+            return;
+        }
         match ev {
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 let Some((x, y)) = self.platform.cursor_pos() else { return };
@@ -199,6 +360,13 @@ impl ApplicationHandler for App {
                         self.button_down = false;
                         self.mouse.push_back(Mouse::Up(x, y));
                     }
+                }
+            }
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
+                if self.menu.is_some() {
+                    self.close_menu();
+                } else {
+                    self.open_menu(el, true);
                 }
             }
             WindowEvent::CloseRequested => el.exit(),

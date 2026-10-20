@@ -101,6 +101,11 @@ impl PetWindow {
         }
     }
 
+    /// Ask for keyboard focus (the menu window, so Esc and focus-lost work).
+    pub fn focus(&self) {
+        self.win.focus_window();
+    }
+
     fn dib(&mut self, w: usize, h: usize) -> Result<&mut Dib, String> {
         if self.dib.as_ref().map_or(true, |d| d.w != w || d.h != h) {
             self.dib = None;

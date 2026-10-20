@@ -42,6 +42,7 @@ mod unsupported {
         }
         pub fn hide(&self) {}
         pub fn show(&self) {}
+        pub fn focus(&self) {}
     }
 }
 #[cfg(not(windows))]

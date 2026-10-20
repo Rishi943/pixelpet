@@ -115,6 +115,12 @@ impl Brain {
         b
     }
 
+    /// Put the pet at ground x (clamped into the work area on the next
+    /// update). Used when the pet is swapped, so the new one appears in place.
+    pub fn place(&mut self, x: f64) {
+        self.x = x;
+    }
+
     /// Hold one anim (or release with None). Drag still works; nothing else
     /// changes the anim. Used by the measuring tool.
     pub fn pin(&mut self, anim: Option<Anim>) {
