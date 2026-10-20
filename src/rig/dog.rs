@@ -442,9 +442,19 @@ fn wag(b: &Body, t: f64) -> Skel {
     c.mouth = 0.08 + 0.3 * lick;
     c.tongue = lick;
     c.ear_back = 0.25;
-    // tail up and swinging 35 degrees each way
-    c.tail_angs = Some(hang_map(|_, i| 2.75 - 0.18 * i + 0.61 * w * (0.7 + 0.15 * i)));
-    build(b, &g, c)
+    // tail held up, swinging side to side: seen side-on it turns towards
+    // and away from us, so each segment foreshortens instead of moving up
+    c.tail_angs = Some(hang_map(|_, i| 2.75 - 0.18 * i));
+    let mut s = build(b, &g, c);
+    let mut p = s.tail[0];
+    let rest = s.tail;
+    for i in 0..4 {
+        let v = sub(rest[i + 1], rest[i]);
+        let turn = 0.7 * w * (0.6 + 0.25 * i as f64);
+        p = add(p, [v[0] * turn.cos(), v[1]]);
+        s.tail[i + 1] = p;
+    }
+    s
 }
 
 /// Petted: sits and leans in, eyes closed.

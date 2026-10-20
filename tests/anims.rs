@@ -110,10 +110,16 @@ fn lean_leans() {
 }
 
 #[test]
-fn wag_wags() {
-    let xs: Vec<f64> = times(rig::period(Pet::Dog, Anim::Wag), 48).map(|t| dog_at(Anim::Wag, t).tail[4][0]).collect();
-    let span = xs.iter().cloned().fold(f64::MIN, f64::max) - xs.iter().cloned().fold(f64::MAX, f64::min);
-    assert!(span >= 0.3, "tail tip x spans {span}");
+fn wag_wags_side_to_side() {
+    // seen side-on, a side-to-side wag swings the tail towards and away from
+    // the viewer: it foreshortens (tip x moves) but stays at one height
+    // (the user: "tail wag should be side to side")
+    let tips: Vec<[f64; 2]> = times(rig::period(Pet::Dog, Anim::Wag), 48).map(|t| dog_at(Anim::Wag, t).tail[4]).collect();
+    let span = |k: usize| {
+        tips.iter().map(|p| p[k]).fold(f64::MIN, f64::max) - tips.iter().map(|p| p[k]).fold(f64::MAX, f64::min)
+    };
+    assert!(span(0) >= 0.12, "tail tip x spans {}", span(0));
+    assert!(span(1) <= 0.08, "tail tip goes up and down by {}", span(1));
 }
 
 #[test]
