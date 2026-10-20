@@ -110,6 +110,38 @@ impl Toy {
     }
 }
 
+/// How much smaller something is at `depth` (0 = on the ground line).
+pub fn depth_scale(depth: f64) -> f64 {
+    1.0 / (1.0 + depth.max(0.0))
+}
+
+/// `look` redrawn at `scale`: the same style with `r` scaled (at least 6),
+/// so a pet far away is drawn with fewer art pixels and stays crisp, rather
+/// than an image shrunk. Built once per `r` and kept. Scale 1 is `look`.
+pub fn look_scaled(look: &'static Look, scale: f64) -> &'static Look {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    let r = (look.r * scale).round().max(6.0);
+    if r == look.r {
+        return look;
+    }
+    static CACHE: OnceLock<Mutex<HashMap<(&'static str, u32), &'static Look>>> = OnceLock::new();
+    let mut c = CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+    *c.entry((look.name, r as u32)).or_insert_with(|| {
+        Box::leak(Box::new(Look {
+            name: look.name,
+            r,
+            zoom: look.zoom,
+            tones: look.tones,
+            soft_outline: look.soft_outline,
+            min_r: look.min_r,
+            noise: look.noise,
+            dither: look.dither,
+            detail: look.detail,
+        }))
+    })
+}
+
 /// `"chunky" | "classic" | "detailed"`; anything else gives classic.
 pub fn look(name: &str) -> &'static Look {
     match name {

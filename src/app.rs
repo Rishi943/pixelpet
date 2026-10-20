@@ -5,6 +5,7 @@ use crate::brain::{Brain, Inputs, Mouse, Show};
 use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
+use crate::scene::{Hit, Part, Scene, Sprite};
 use crate::ui::menu::{self, Action, Menu};
 use crate::view::View;
 use crate::window::PetWindow;
@@ -54,6 +55,8 @@ pub struct App {
     presented: Option<(u64, i32, i32, u8)>,
     /// top-left of the image on screen, for hit-testing the cursor
     placed: Option<(i32, i32)>,
+    /// what was last shown, for hit-testing
+    scene: Option<Scene>,
     last_x: f64,
     hidden: bool,
     /// whether the cursor was on the pet last tick (hover stickiness)
@@ -106,6 +109,7 @@ impl App {
             last_poll: None,
             presented: None,
             placed: None,
+            scene: None,
             last_x: 0.0,
             hidden: true,
             was_over: false,
@@ -126,10 +130,10 @@ impl App {
         self.start.elapsed().as_secs_f64()
     }
 
-    /// Whether the cursor is over an opaque pixel of the pet's image.
+    /// Whether the cursor is on the pet in the scene last shown.
     fn over_pet(&self, cursor: Option<(i32, i32)>) -> bool {
-        let (Some(c), Some(at), false) = (cursor, self.placed, self.hidden) else { return false };
-        crate::view::over_image(self.view.image(), at, c, self.was_over)
+        let (Some(c), Some(scene), false) = (cursor, self.scene.as_ref(), self.hidden) else { return false };
+        scene.hit(c.0, c.1, self.was_over) == Hit::Pet
     }
 
     fn tick(&mut self, el: &ActiveEventLoop) {
@@ -200,7 +204,7 @@ impl App {
             }
             return;
         }
-        let (_, dx, dy) = self.view.frame(show, now, zoom, false);
+        let (_, dx, dy) = self.view.frame(show, now, zoom, false, 0.0);
         let z = zoom as i32;
         // snap to whole art pixels in x
         let left = (show.x.round() as i32 + dx).div_euclid(z) * z;
@@ -210,10 +214,16 @@ impl App {
         if self.presented == Some(key) && !self.hidden {
             return;
         }
-        if let Err(e) = win.present(self.view.image(), left, top, opacity) {
+        let scene = Scene {
+            sprites: vec![Sprite { img: self.view.image().clone(), x: left, y: top, part: Part::Pet }],
+            rope: None,
+        };
+        let (img, sx, sy) = scene.compose();
+        if let Err(e) = win.present(&img, sx, sy, opacity) {
             eprintln!("present failed: {e}");
             return;
         }
+        self.scene = Some(scene);
         if self.hidden {
             win.show();
             self.hidden = false;

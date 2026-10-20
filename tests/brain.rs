@@ -98,7 +98,8 @@ fn wander_never_repeats_except_walk() {
             assert_eq!(w[1], Anim::Stand, "sleep not followed by stand");
         }
     }
-    for a in Anim::ALL {
+    // the wander script's anims (the play anims never come from it)
+    for a in [Anim::Stand, Anim::Walk, Anim::Sit, Anim::Tilt, Anim::Hop, Anim::Sleep] {
         assert!(seq.contains(&a), "{a:?} never played");
     }
 }

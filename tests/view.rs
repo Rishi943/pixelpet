@@ -61,11 +61,11 @@ fn compose_draws_z() {
 fn cache_reuses_frames() {
     let mut v = View::new(Pet::Dog, rig::look("classic"));
     let s = show(Anim::Stand, 0.0);
-    v.frame(&s, 1.00, 3, false);
+    v.frame(&s, 1.00, 3, false, 0.0);
     let n = v.renders();
-    v.frame(&s, 1.01, 3, false); // same 1/12 s step
+    v.frame(&s, 1.01, 3, false, 0.0); // same 1/12 s step
     assert_eq!(v.renders(), n);
-    v.frame(&s, 1.10, 3, false); // next step
+    v.frame(&s, 1.10, 3, false, 0.0); // next step
     assert_eq!(v.renders(), n + 1);
 }
 
@@ -73,15 +73,15 @@ fn cache_reuses_frames() {
 fn blend_takes_three_steps() {
     let look = rig::look("classic");
     let mut v = View::new(Pet::Dog, look);
-    v.frame(&show(Anim::Walk, -2.0), -0.05, 3, false);
+    v.frame(&show(Anim::Walk, -2.0), -0.05, 3, false, 0.0);
     let s = show(Anim::Sleep, 0.0);
-    let frames: Vec<Vec<u8>> = [0.0, 0.09, 0.17, 0.25].iter().map(|&t| v.frame(&s, t, 3, false).0.px.clone()).collect();
+    let frames: Vec<Vec<u8>> = [0.0, 0.09, 0.17, 0.25].iter().map(|&t| v.frame(&s, t, 3, false, 0.0).0.px.clone()).collect();
     assert_ne!(frames[0], frames[1]);
     assert_ne!(frames[1], frames[2]);
     assert_ne!(frames[2], frames[3]);
     let mut fresh = View::new(Pet::Dog, look);
-    assert_eq!(frames[3], fresh.frame(&s, 0.25, 3, false).0.px, "from 0.25 it is the target anim's own frame");
-    assert_eq!(v.frame(&s, 0.40, 3, false).0.px, fresh.frame(&s, 0.40, 3, false).0.px);
+    assert_eq!(frames[3], fresh.frame(&s, 0.25, 3, false, 0.0).0.px, "from 0.25 it is the target anim's own frame");
+    assert_eq!(v.frame(&s, 0.40, 3, false, 0.0).0.px, fresh.frame(&s, 0.40, 3, false, 0.0).0.px);
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn hover_hit_is_sticky_inside_the_image() {
 fn offset_puts_feet_on_the_ground() {
     let look = rig::look("classic");
     let mut v = View::new(Pet::Dog, look);
-    let (img, dx, dy) = v.frame(&show(Anim::Stand, 0.0), 0.0, 3, false);
+    let (img, dx, dy) = v.frame(&show(Anim::Stand, 0.0), 0.0, 3, false, 0.0);
     let (w, h) = (img.w as i32, img.h as i32);
     // the ground point sits at the frame's ox column boundary, below row gy
     assert_eq!(dx, -35 * 3);

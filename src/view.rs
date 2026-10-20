@@ -122,6 +122,8 @@ struct FrameKey {
     blend_step: u8, // 3 = no blend
     blend_id: u64,
     collar: bool,
+    /// the look's `r` at this depth
+    r: u32,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -184,8 +186,11 @@ impl View {
     }
 
     /// The image to show, plus the offset from the pet's ground point
-    /// (`x`, ground y) to the image's top-left, in physical px.
-    pub fn frame(&mut self, show: &Show, now: f64, zoom: u32, collar: bool) -> (&Rgba, i32, i32) {
+    /// (`x`, ground y) to the image's top-left, in physical px. At `depth`
+    /// the pet is redrawn smaller (`rig::look_scaled`), still in whole art
+    /// pixels of `zoom`.
+    pub fn frame(&mut self, show: &Show, now: f64, zoom: u32, collar: bool, depth: f64) -> (&Rgba, i32, i32) {
+        let look = rig::look_scaled(self.look, rig::depth_scale(depth));
         // an anim change blends from whatever was last on screen
         if self.last_anim.is_some_and(|a| a != show.anim) {
             if let Some(from) = self.last_skel {
@@ -213,14 +218,15 @@ impl View {
             blend_step: step,
             blend_id: self.blend.as_ref().map_or(0, |b| b.id),
             collar,
+            r: look.r as u32,
         };
         if self.frame_key != Some(key) {
             let t = tick as f64 / FPS;
-            let mut s = rig::pose(self.pet, show.anim, self.look, t, None);
+            let mut s = rig::pose(self.pet, show.anim, look, t, None);
             if let (Some(b), true) = (&self.blend, step < 3) {
                 s = rig::lerp(&b.from, &s, step as f64 / BLEND_STEPS);
             }
-            self.frame = Some(rig::render(&s, self.look, collar));
+            self.frame = Some(rig::render(&s, look, collar));
             self.frame_key = Some(key);
             self.last_skel = Some(s);
             self.renders += 1;
@@ -246,7 +252,7 @@ impl View {
             self.zzz_since = None;
             vec![]
         };
-        let margin = js_round(self.look.r) as usize * zoom as usize;
+        let margin = js_round(look.r) as usize * zoom as usize;
         let ikey = ImageKey {
             frame: key,
             zoom,
@@ -255,7 +261,7 @@ impl View {
         };
         let frame = self.frame.as_ref().unwrap();
         if self.image_key.as_ref() != Some(&ikey) {
-            self.image = compose(frame, self.look.r, zoom, show.facing, &zzz, margin);
+            self.image = compose(frame, look.r, zoom, show.facing, &zzz, margin);
             self.image_key = Some(ikey);
             self.image_gen += 1;
         }
