@@ -290,7 +290,7 @@ impl Brain {
     fn play(&mut self, p: Play, inp: &Inputs, now: f64, dt: f64, lo: f64, hi: f64) {
         match p {
             Play::Fetch { toy, st } => self.fetch(toy, st, inp, now, dt, lo, hi),
-            Play::Tug { st } => self.tug(st, inp, now),
+            Play::Tug { st } => self.tug(st, inp, now, lo, hi),
             Play::Feed { food, st } => self.feed(food, st, inp, now, dt, lo, hi),
             Play::Pet { mut strokes, mut off_since } => {
                 if inp.over_pet {

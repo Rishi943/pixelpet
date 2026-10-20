@@ -736,97 +736,113 @@ fn waiting_toy_drops() {
 
 // ---------------------------------------------------------------- M2: tug-of-war
 
-/// The mouth as the brain sees it: the cursor is `units` from it, level.
+// The rope has a fixed length (the user: "he moves if i pull the rope, not
+// the rope getting longer, and he needs to move back to tug it towards him,
+// not the rope getting smaller").
+
+/// Tug with the cursor `units` to the pet's right, level with the mouth.
 fn tug_start(pet: Pet, units: f64) -> Sim {
     let mut sim = Sim::new(pet);
     sim.run(1.0, |_, _| {});
     let x = sim.last.x;
-    // start to the pet's right, so it faces right
-    sim.cursor = Some(((x + units * sim.unit_px) as i32, 1000));
+    let (_, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
+    sim.cursor = Some(((x + (units + 0.5) * sim.unit_px) as i32, my as i32));
     sim.brain.choose(Choice::Tug, sim.now);
     sim.step();
     sim
 }
 
-fn mouth_dist(sim: &Sim) -> f64 {
+fn rope_len(sim: &Sim) -> f64 {
     let (mx, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
     let (cx, cy) = sim.cursor.unwrap();
     ((cx as f64 - mx).powi(2) + (cy as f64 - my).powi(2)).sqrt()
 }
 
-#[test]
-fn tug_pulls_the_cursor() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    assert!(sim.last.playing && sim.last.anim == Anim::Tug);
-    assert_eq!(sim.last.props.rope_to, sim.cursor, "the rope runs to the cursor");
-    let d0 = mouth_dist(&sim);
-    let start = sim.cursor.unwrap();
-    // wait for the first burst to finish
+/// Step until the next burst has finished; the pet's x and cursor x before and after.
+fn one_burst(sim: &mut Sim) -> ((f64, i32), (f64, i32)) {
+    let before = (sim.last.x, sim.cursor.unwrap().0);
     let mut seen = false;
-    for _ in 0..(2.2 / DT) as usize {
+    for _ in 0..(2.5 / DT) as usize {
         sim.step();
-        if !sim.warps.is_empty() {
+        if sim.last.props.taut {
             seen = true;
-        }
-        if seen && sim.last.warp.is_none() {
+        } else if seen {
             break;
         }
     }
-    assert!(seen, "no burst within 1.6 s");
-    let end = sim.cursor.unwrap();
-    let moved = (((end.0 - start.0).pow(2) + (end.1 - start.1).pow(2)) as f64).sqrt();
-    assert!((moved - 0.6 * sim.unit_px).abs() <= 1.5, "a burst moved the cursor {moved} px, want {}", 0.6 * sim.unit_px);
-    assert!(mouth_dist(&sim) < d0, "pulled away from the mouth");
-    assert_eq!(sim.last.props.rope_to, sim.cursor);
+    assert!(seen, "no burst within 2.5 s");
+    (before, (sim.last.x, sim.cursor.unwrap().0))
+}
+
+#[test]
+fn tug_he_steps_back_and_the_cursor_comes_too() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    assert!(sim.last.playing && sim.last.anim == Anim::Tug);
+    assert_eq!(sim.last.props.rope_to, sim.cursor, "the rope runs to the cursor");
+    let len = rope_len(&sim);
+    let ((x0, c0), (x1, c1)) = one_burst(&mut sim);
+    let u = sim.unit_px;
+    assert!((x0 - x1 - 0.6 * u).abs() <= 2.0, "stepped back {} px, want {}", x0 - x1, 0.6 * u);
+    assert!(((c0 - c1) as f64 - 0.6 * u).abs() <= 2.0, "the cursor came {} px", c0 - c1);
+    assert!((rope_len(&sim) - len).abs() <= 2.0, "the rope changed length: {len} -> {}", rope_len(&sim));
+}
+
+#[test]
+fn tug_pulling_drags_the_pet() {
+    let mut sim = tug_start(Pet::Dog, 3.0);
+    let len = rope_len(&sim);
+    let x0 = sim.last.x;
+    let pull = (0.8 * sim.unit_px) as i32;
+    let (cx, cy) = sim.cursor.unwrap();
+    sim.cursor = Some((cx + pull, cy));
+    sim.step();
+    assert!((sim.last.x - x0 - pull as f64).abs() <= 2.0, "dragged {} px, pulled {pull}", sim.last.x - x0);
+    assert!((rope_len(&sim) - len).abs() <= 2.0, "the rope stretched");
+    assert_eq!(sim.last.anim, Anim::Tug, "braced while dragged");
 }
 
 #[test]
 fn tug_user_wins() {
     let mut sim = tug_start(Pet::Dog, 3.0);
-    let far = ((sim.last.x + 6.5 * sim.unit_px) as i32, 1000);
+    let (x0, u) = (sim.last.x, sim.unit_px);
     let mut anims = vec![];
-    for _ in 0..(2.2 / DT) as usize {
-        sim.cursor = Some(far); // the user holds it out there
-        let sh = sim.step();
-        anims.push(sh.anim);
+    // pull steadily, a unit every half second (he tugs back now and then)
+    for _ in 0..90 {
+        let (cx, cy) = sim.cursor.unwrap();
+        sim.cursor = Some((cx + (u / 15.0) as i32, cy));
+        anims.push(sim.step().anim);
+        if !sim.last.playing {
+            break;
+        }
     }
-    assert!(anims.contains(&Anim::Hop), "no happy jump");
-    assert!(anims.iter().take((1.9 / DT) as usize).all(|a| *a == Anim::Tug), "won too early");
+    assert!(anims.contains(&Anim::Hop), "no happy jump: dragged {} units", (sim.last.x - x0) / u);
     assert_eq!(sim.last.props.rope_to, None, "lets go of the rope");
     sim.run(1.5, |_, _| {});
     assert!(!sim.last.playing);
 }
 
 #[test]
-fn tug_pet_wins() {
+fn tug_pet_wins_by_pulling_back() {
     let mut sim = tug_start(Pet::Rabbit, 3.0);
-    sim.over_pet = true; // dragged onto the pet
-    sim.step();
-    assert_eq!(sim.last.props.rope_to, None);
+    let (x0, u) = (sim.last.x, sim.unit_px);
+    let mut won = None;
+    for _ in 0..(15.0 / DT) as usize {
+        sim.step();
+        if sim.last.props.rope_to.is_none() {
+            won = Some(sim.now);
+            break;
+        }
+    }
+    assert!(won.is_some(), "never won");
+    assert!(x0 - sim.last.x >= 2.5 * u - 2.0, "won having backed only {} units", (x0 - sim.last.x) / u);
     sim.run(1.1, |_, sh| assert_eq!(sh.anim, Anim::Tug, "victory shake"));
-    sim.over_pet = false;
     sim.run(0.3, |_, _| {});
     assert!(!sim.last.playing);
 }
 
 #[test]
-fn tug_without_warp() {
+fn tug_cursor_onto_the_pet_is_giving_up() {
     let mut sim = tug_start(Pet::Dog, 3.0);
-    sim.can_warp = false;
-    sim.warps.clear();
-    sim.run(3.0, |_, _| {});
-    assert!(sim.warps.is_empty(), "asked to move a cursor that can't be moved");
-    assert!(sim.last.playing, "nothing ends it while the user holds still");
-    let far = ((sim.last.x + 6.5 * sim.unit_px) as i32, 1000);
-    let mut hop = false;
-    for _ in 0..(2.3 / DT) as usize {
-        sim.cursor = Some(far);
-        hop |= sim.step().anim == Anim::Hop;
-    }
-    assert!(hop, "the user still wins by distance");
-    // and the pet still wins when the cursor reaches it
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    sim.can_warp = false;
     sim.over_pet = true;
     sim.step();
     assert_eq!(sim.last.props.rope_to, None);
@@ -834,22 +850,47 @@ fn tug_without_warp() {
 }
 
 #[test]
-fn tug_times_out() {
+fn tug_without_warp() {
     let mut sim = tug_start(Pet::Dog, 3.0);
     sim.can_warp = false;
+    sim.warps.clear();
+    let (x0, u) = (sim.last.x, sim.unit_px);
+    one_burst(&mut sim);
+    assert!(sim.warps.is_empty(), "asked to move a cursor that can't be moved");
+    assert!(sim.last.x < x0 - 0.3 * u, "he still steps back (the rope stretches)");
+    // the user still wins by dragging him
+    let mut hop = false;
+    for _ in 0..90 {
+        let (cx, cy) = sim.cursor.unwrap();
+        sim.cursor = Some((cx + (u / 15.0) as i32, cy));
+        hop |= sim.step().anim == Anim::Hop;
+    }
+    assert!(hop, "the user still wins by dragging");
+}
+
+#[test]
+fn tug_stalemate_at_the_edge_times_out() {
+    // backed against the left edge he can't pull further: nobody wins, and
+    // 20 s with no input from the user ends it
+    let mut sim = Sim::new(Pet::Dog);
+    sim.brain.place(-5000.0);
+    sim.run(0.5, |_, _| {});
+    let (_, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
+    sim.cursor = Some(((sim.last.x + 3.5 * sim.unit_px) as i32, my as i32));
+    sim.brain.choose(Choice::Tug, sim.now);
     let mut hop = false;
     sim.run(19.5, |_, sh| hop |= sh.anim == Anim::Hop);
     assert!(sim.last.playing, "ended before 20 s");
     sim.run(1.0, |_, sh| hop |= sh.anim == Anim::Hop);
-    assert!(!sim.last.playing, "an untouched tug never ended");
+    assert!(!sim.last.playing, "a stalemate never ended");
     assert!(!hop, "nobody won");
+    assert!(sim.in_bounds(sim.last.x));
 }
 
 #[test]
 fn cancel_mid_tug() {
     let mut sim = tug_start(Pet::Dog, 3.0);
-    // into a burst
-    for _ in 0..(2.0 / DT) as usize {
+    for _ in 0..(2.5 / DT) as usize {
         sim.step();
         if sim.last.warp.is_some() {
             break;
