@@ -26,6 +26,18 @@ for (const look of ['classic', 'detailed']) {
   CASES.push(['dog', look, 'stand', 0, null, true, null]);
   CASES.push(['dog', look, 'walk', 0.3, null, false, ['sleep', 1, 0.3333333333333333]]);
 }
+const RABBIT_POSES = [
+  ['stand', 0], ['stand', 1.05], ['stand', 4.0],
+  ['walk', 0.14], ['walk', 0.26], ['walk', 0.4],
+  ['sit', 0.2], ['sit', 0.6],
+  ['tilt', 0.5], ['tilt', 1.5],
+  ['hop', 0.2], ['hop', 0.5],
+  ['sleep', 1], ['sleep', 7.7]
+];
+for (const look of ['classic', 'detailed']) {
+  for (const [anim, t] of RABBIT_POSES) CASES.push(['rabbit', look, anim, t, null, false, null]);
+  CASES.push(['rabbit', look, 'walk', 0.3, null, false, ['sleep', 1, 0.6666666666666666]]);
+}
 
 const TOY_CASES = [['ball', 'classic'], ['coconut', 'classic'], ['football', 'classic']];
 
@@ -47,7 +59,6 @@ function writePpg(name, f) {
 }
 
 fs.mkdirSync(OUT, { recursive: true });
-for (const f of fs.readdirSync(OUT)) if (f.endsWith('.ppg')) fs.unlinkSync(path.join(OUT, f));
 const lines = [];
 for (const c of CASES) {
   const [pet, lookName, anim, t, toy, collar, lerp] = c;

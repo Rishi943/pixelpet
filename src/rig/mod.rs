@@ -100,7 +100,7 @@ pub enum Skel {
 pub fn pose(pet: Pet, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
     match pet {
         Pet::Dog => Skel::Dog(dog::pose(anim, look, t, toy)),
-        Pet::Rabbit => unimplemented!("rabbit rig lands in M1 Task 3"),
+        Pet::Rabbit => Skel::Rabbit(rabbit::Skel { toy, ..rabbit::pose(anim, look, t) }),
     }
 }
 
@@ -108,6 +108,7 @@ pub fn pose(pet: Pet, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel
 pub fn lerp(a: &Skel, b: &Skel, k: f64) -> Skel {
     match (a, b) {
         (Skel::Dog(a), Skel::Dog(b)) => Skel::Dog(dog::lerp(a, b, k)),
+        (Skel::Rabbit(a), Skel::Rabbit(b)) => Skel::Rabbit(rabbit::lerp(a, b, k)),
         _ => panic!("rig::lerp: skeletons of different species"),
     }
 }
@@ -115,6 +116,11 @@ pub fn lerp(a: &Skel, b: &Skel, k: f64) -> Skel {
 fn alex_palette() -> &'static Palette {
     static P: OnceLock<Palette> = OnceLock::new();
     P.get_or_init(|| Palette::compile(&dog::ALEX))
+}
+
+fn bun_palette() -> &'static Palette {
+    static P: OnceLock<Palette> = OnceLock::new();
+    P.get_or_init(|| Palette::compile(&rabbit::BUN))
 }
 
 pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
@@ -136,7 +142,15 @@ pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
             dog::eyes(&mut out, s, &b, look, fs, pal);
             Frame { w: fs.w, h: fs.h, ox: fs.ox, gy: fs.gy, rgba: out }
         }
-        Skel::Rabbit(_) => unimplemented!("rabbit rig lands in M1 Task 3"),
+        Skel::Rabbit(s) => {
+            let b = rabbit::body(look);
+            let list = rabbit::shapes(s, &b, look);
+            let pal = bun_palette();
+            let mut rs = raster(&list, look, fs, rabbit::paint);
+            let mut out = to_rgba(&mut rs, look, fs, pal);
+            rabbit::eyes(&mut out, s, &b, look, fs, pal);
+            Frame { w: fs.w, h: fs.h, ox: fs.ox, gy: fs.gy, rgba: out }
+        }
     }
 }
 
@@ -160,7 +174,7 @@ pub fn render_toy(toy: Toy, look: &Look) -> Frame {
 pub fn period(pet: Pet, anim: Anim) -> f64 {
     match pet {
         Pet::Dog => dog::period(anim),
-        Pet::Rabbit => unimplemented!("rabbit rig lands in M1 Task 3"),
+        Pet::Rabbit => rabbit::period(anim),
     }
 }
 
@@ -168,11 +182,15 @@ pub fn period(pet: Pet, anim: Anim) -> f64 {
 pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
     match (pet, anim) {
         (Pet::Dog, Anim::Walk) => dog::walk_speed(&dog::body(look)),
+        (Pet::Rabbit, Anim::Walk) => rabbit::WALK_SPEED,
         _ => 0.0,
     }
 }
 
 /// Shapes the speed over one loop (`phase` in [0, 1)); 1.0 for constant speed.
-pub fn move_profile(_pet: Pet, _anim: Anim, _phase: f64) -> f64 {
-    1.0
+pub fn move_profile(pet: Pet, anim: Anim, phase: f64) -> f64 {
+    match (pet, anim) {
+        (Pet::Rabbit, Anim::Walk) => rabbit::walk_move(phase),
+        _ => 1.0,
+    }
 }
