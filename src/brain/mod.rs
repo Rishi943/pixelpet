@@ -22,6 +22,9 @@ pub const BUBBLE_LINGER: f64 = 0.6;
 pub const STROKES_TO_SETTLE: u32 = 6;
 /// Play ends after this long with no mouse input.
 pub const PLAY_IDLE_END: f64 = 60.0;
+/// ... or this long without actually playing (no throw, bite or stroke):
+/// moving the mouse for other work puts the toy or food away.
+pub const PLAY_UNENGAGED: f64 = 30.0;
 const HEART_LIFE: f64 = 1.2;
 /// Petting ends once the cursor has been off the pet this long.
 const PET_LEAVE: f64 = 0.5;
@@ -183,6 +186,8 @@ pub struct Brain {
     /// from the last update: px per rig unit, and the ground line
     last_u: f64,
     last_ground: f64,
+    /// last throw, fetch, bite or stroke (for PLAY_UNENGAGED)
+    engaged_at: f64,
     /// last mouse input during play (for PLAY_IDLE_END)
     play_input_at: f64,
     last_cursor: Option<(i32, i32)>,
@@ -223,6 +228,7 @@ impl Brain {
             last_u: 66.0,
             last_ground: work.bottom() as f64,
             play_input_at: now,
+            engaged_at: now,
             last_cursor: None,
         };
         b.next_wander(now);
@@ -241,6 +247,7 @@ impl Brain {
         self.bubble_off_since = None;
         self.hover_start = None;
         self.play_input_at = now;
+        self.engaged_at = now;
         match c {
             Choice::Pet => {
                 self.mode = Mode::Play(Play::Pet { strokes: pet::Strokes::default(), off_since: None });
@@ -283,6 +290,7 @@ impl Brain {
                 }
                 if let (Some((cx, _)), true) = (inp.cursor, inp.over_pet) {
                     if strokes.feed(cx as f64, inp.unit_px) {
+                        self.engaged_at = now;
                         self.props.hearts[self.heart_i % 6] = Some(now);
                         self.heart_i += 1;
                     }
@@ -415,7 +423,7 @@ impl Brain {
         }
         self.last_cursor = inp.cursor;
         if let Mode::Play(_) = self.mode {
-            if inp.cancel || now - self.play_input_at >= PLAY_IDLE_END {
+            if inp.cancel || now - self.play_input_at >= PLAY_IDLE_END || now - self.engaged_at >= PLAY_UNENGAGED {
                 self.end_play(now);
             }
         }

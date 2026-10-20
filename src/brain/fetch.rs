@@ -201,6 +201,10 @@ impl Brain {
                 }
             }
         };
+        // held, in flight, or being fetched: that is playing
+        if !matches!(st, State::Waiting { .. } | State::Ready) {
+            self.engaged_at = now;
+        }
         self.props.toy = Some(t);
         self.mode = Mode::Play(Play::Fetch { toy, st });
     }

@@ -913,3 +913,29 @@ fn alex_runs_into_the_screen_and_back() {
     let (seq, _, _) = fetch_run(&mut sim, 60.0);
     assert!(!seq.contains(&Anim::RunAway) && !seq.contains(&Anim::CarryBack), "{seq:?}");
 }
+
+#[test]
+fn play_put_away_when_the_user_goes_back_to_work() {
+    // moving the mouse for other things is not playing: a toy left lying,
+    // or food left in the hand, is put away after 30 s
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Ball, 900, 3000.0);
+    fetch_run(&mut sim, 40.0);
+    assert!(sim.last.playing && sim.last.anim == Anim::Sit, "ready for another throw");
+    let mut k = 0;
+    sim.run(25.0, |_, _| {});
+    for _ in 0..(10.0 / DT) as usize {
+        k += 1;
+        sim.cursor = Some((200 + (k % 50) * 10, 300)); // busy elsewhere
+        sim.step();
+    }
+    assert!(!sim.last.playing && sim.last.props.toy.is_none(), "the toy is still out after 35 s of not playing");
+
+    let mut sim = feed_start(Pet::Rabbit, rig::Food::Carrot, 0.0);
+    for i in 0..(32.0 / DT) as usize {
+        sim.cursor = Some((100 + (i as i32 % 40) * 5, 150)); // held up high, out of reach
+        sim.step();
+    }
+    assert!(!sim.last.playing && sim.last.props.food.is_none(), "the food is still in the hand");
+}

@@ -90,6 +90,7 @@ impl Brain {
                     State::Follow
                 } else {
                     let mut eaten = eaten;
+                    self.engaged_at = now;
                     if dist <= AT_MOUTH * u {
                         eaten += dt;
                     } else if inp.can_warp {
