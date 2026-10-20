@@ -51,6 +51,9 @@ pub trait Platform {
     fn autostart(&self) -> Option<PathBuf>;
     /// Point the launch-on-startup entry at `target`, or remove it with None.
     fn set_autostart(&self, target: Option<&Path>) -> std::io::Result<()>;
+    /// Whether Esc is held down right now. The app asks only while play is
+    /// going on (Esc ends it), and reads no other key.
+    fn esc_down(&self) -> bool;
 }
 
 /// No OS support: no cursor, no idle, no fullscreen, a 1920x1040 work area.
@@ -78,6 +81,9 @@ impl Platform for Stub {
     fn set_autostart(&self, _target: Option<&Path>) -> std::io::Result<()> {
         Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "launch on startup is not supported here"))
     }
+    fn esc_down(&self) -> bool {
+        false
+    }
 }
 
 /// A platform for tests: each method returns its field; warps and autostart
@@ -90,6 +96,7 @@ pub struct Fake {
     pub idle: RefCell<Option<f64>>,
     pub fullscreen: RefCell<Option<bool>>,
     pub autostart: RefCell<Option<PathBuf>>,
+    pub esc: RefCell<bool>,
 }
 
 impl Default for Fake {
@@ -102,6 +109,7 @@ impl Default for Fake {
             idle: RefCell::new(Some(0.0)),
             fullscreen: RefCell::new(Some(false)),
             autostart: RefCell::new(None),
+            esc: RefCell::new(false),
         }
     }
 }
@@ -134,6 +142,9 @@ impl Platform for Fake {
     fn set_autostart(&self, target: Option<&Path>) -> std::io::Result<()> {
         *self.autostart.borrow_mut() = target.map(Path::to_path_buf);
         Ok(())
+    }
+    fn esc_down(&self) -> bool {
+        *self.esc.borrow()
     }
 }
 

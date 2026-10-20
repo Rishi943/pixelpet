@@ -140,6 +140,11 @@ impl Platform for Win {
     fn set_autostart(&self, target: Option<&Path>) -> std::io::Result<()> {
         set_autostart_named("PixelPet", target)
     }
+
+    fn esc_down(&self) -> bool {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+        (unsafe { GetAsyncKeyState(VK_ESCAPE as i32) } as u16 & 0x8000) != 0
+    }
 }
 
 fn os_err(code: u32) -> std::io::Error {

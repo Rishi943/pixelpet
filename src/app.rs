@@ -2,6 +2,7 @@
 //! tick -> read platform -> brain update -> rig render (cached) -> present.
 
 use crate::brain::{Brain, Inputs, Mouse, Show};
+use crate::ui::bubble::Bubble;
 use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
@@ -22,6 +23,20 @@ use winit::window::WindowId;
 const POLL_EVERY: f64 = 2.0;
 /// The menu closes when the cursor has been away from it this long.
 const MENU_AWAY_CLOSE: f64 = 4.0;
+
+/// Hearts rise this many rig units over their life, fading at the end.
+const HEART_RISE: f64 = 1.5;
+const HEART_LIFE: f64 = 1.2;
+const HEART_FADE: f64 = 0.4;
+
+/// The open hover bubble.
+struct BubbleOpen {
+    win: PetWindow,
+    left: i32,
+    top: i32,
+    w: i32,
+    h: i32,
+}
 
 /// The open right-click menu.
 struct MenuOpen {
@@ -66,6 +81,12 @@ pub struct App {
     next_tick: Instant,
     /// PIXELPET_OPEN_MENU: open the menu (without focus) once the pet is shown
     open_menu_at_start: bool,
+    bubble: Bubble,
+    bubble_open: Option<BubbleOpen>,
+    /// right-click or Esc during play, passed to the brain on the next tick
+    cancel_pending: bool,
+    esc_was_down: bool,
+    last_show: Option<Show>,
 }
 
 fn seed() -> u64 {
@@ -102,6 +123,11 @@ impl App {
             menu: None,
             brain,
             view: View::new(pet, look),
+            bubble: Bubble::new(pet),
+            bubble_open: None,
+            cancel_pending: false,
+            esc_was_down: false,
+            last_show: None,
             mouse: VecDeque::new(),
             button_down: false,
             idle: None,
@@ -165,6 +191,16 @@ impl App {
                 _ => {}
             }
         }
+        // Esc ends play; read only while playing, and only Esc
+        if self.last_show.is_some_and(|s| s.playing) {
+            let down = self.platform.esc_down();
+            if down && !self.esc_was_down {
+                self.cancel_pending = true;
+            }
+            self.esc_was_down = down;
+        } else {
+            self.esc_was_down = false;
+        }
         let mouse = match self.mouse.pop_front() {
             Some(m) => m,
             None if self.button_down => cursor.map_or(Mouse::None, |(x, y)| Mouse::Move(x, y)),
@@ -180,19 +216,22 @@ impl App {
             mouse,
             idle: self.idle,
             fullscreen: self.fullscreen,
-            over_bubble: false,
-            over_toy: false,
-            cancel: false,
+            over_bubble: self.over_bubble(cursor),
+            over_toy: self.over_toy(cursor),
+            cancel: std::mem::take(&mut self.cancel_pending),
         };
         let show = self.brain.update(&inp, &self.settings);
         self.was_over = inp.over_pet;
         self.last_x = show.x;
+        self.last_show = Some(show);
         self.present(&show, now, zoom, work.bottom());
+        self.bubble_tick(el, &show, work);
         if self.open_menu_at_start && self.placed.is_some() {
             self.open_menu_at_start = false;
             self.open_menu(el, false);
         }
-        let busy = self.button_down || show.lift > 0.0 || !self.mouse.is_empty();
+        let hearts = show.props.hearts.iter().any(|h| h.is_some());
+        let busy = self.button_down || show.lift > 0.0 || !self.mouse.is_empty() || show.playing || show.bubble || hearts;
         let hz = if busy { 30.0 } else { 12.0 };
         self.next_tick = Instant::now() + Duration::from_secs_f64(1.0 / hz);
         el.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
@@ -214,13 +253,20 @@ impl App {
         let top = ground + dy - show.lift.round() as i32;
         let opacity = (show.opacity as f64 * 255.0 / 100.0).round() as u8;
         let key = (self.view.image_generation(), left, top, opacity);
-        if self.presented == Some(key) && !self.hidden {
+        let hearts = show.props.hearts.iter().any(|h| h.is_some());
+        if self.presented == Some(key) && !self.hidden && !hearts {
             return;
         }
-        let scene = Scene {
-            sprites: vec![Sprite { img: self.view.image().clone(), x: left, y: top, part: Part::Pet }],
-            rope: None,
-        };
+        let mut sprites = vec![Sprite { img: self.view.image().clone(), x: left, y: top, part: Part::Pet }];
+        let u = self.look.r * zoom as f64;
+        for t0 in show.props.hearts.iter().flatten() {
+            let age = now - t0;
+            let img = heart_image(zoom, age);
+            let hx = show.x + show.facing as f64 * 0.3 * u - img.w as f64 / 2.0;
+            let hy = ground as f64 - 1.5 * u - HEART_RISE * u * (age / HEART_LIFE) - img.h as f64;
+            sprites.push(Sprite { img, x: hx.round() as i32, y: hy.round() as i32, part: Part::Effect });
+        }
+        let scene = Scene { sprites, rope: None };
         let (img, sx, sy) = scene.compose();
         if let Err(e) = win.present(&img, sx, sy, opacity) {
             eprintln!("present failed: {e}");
@@ -233,6 +279,75 @@ impl App {
         }
         self.presented = Some(key);
         self.placed = Some((left, top));
+    }
+
+    // ---------------------------------------------------------------- bubble
+
+    fn over_bubble(&self, cursor: Option<(i32, i32)>) -> bool {
+        let (Some((x, y)), Some(b)) = (cursor, self.bubble_open.as_ref()) else { return false };
+        x >= b.left && y >= b.top && x < b.left + b.w && y < b.top + b.h
+    }
+
+    fn over_toy(&self, cursor: Option<(i32, i32)>) -> bool {
+        let (Some(c), Some(scene), false) = (cursor, self.scene.as_ref(), self.hidden) else { return false };
+        scene.hit(c.0, c.1, false) == Hit::Toy
+    }
+
+    /// Open the bubble when the brain says so, above the pet's head; close it
+    /// when it says not.
+    fn bubble_tick(&mut self, el: &ActiveEventLoop, show: &Show, work: Rect) {
+        if !show.bubble || !show.visible || self.menu.is_some() {
+            if self.bubble_open.take().is_some() {
+                self.bubble.reset();
+            }
+            return;
+        }
+        if self.bubble_open.is_none() {
+            match PetWindow::new(el, false) {
+                Ok(win) => self.bubble_open = Some(BubbleOpen { win, left: 0, top: 0, w: 0, h: 0 }),
+                Err(e) => {
+                    eprintln!("PixelPet: could not open the bubble: {e}");
+                    return;
+                }
+            }
+            self.draw_bubble(work);
+        }
+    }
+
+    /// Draw the bubble at its current page, centred over the pet, its tail
+    /// just above the pet's head, kept inside the work area.
+    fn draw_bubble(&mut self, work: Rect) {
+        let scale = self.settings.size.zoom();
+        let img = self.bubble.draw(scale);
+        let (w, h) = (img.w as i32, img.h as i32);
+        let (Some((_, pt)), Some(show)) = (self.placed, self.last_show) else { return };
+        let pet = self.view.image();
+        let head = (0..pet.h).find(|&y| (0..pet.w).any(|x| pet.px[(y * pet.w + x) * 4 + 3] > 0)).unwrap_or(0) as i32;
+        let left = (show.x.round() as i32 - w / 2).clamp(work.x, (work.x + work.w - w).max(work.x));
+        let top = (pt + head - h - 2).max(work.y);
+        let Some(b) = self.bubble_open.as_mut() else { return };
+        if let Err(e) = b.win.present(&img, left, top, 255) {
+            eprintln!("PixelPet: bubble present failed: {e}");
+        }
+        (b.left, b.top, b.w, b.h) = (left, top, w, h);
+    }
+
+    fn is_bubble(&self, id: WindowId) -> bool {
+        self.bubble_open.as_ref().is_some_and(|b| b.win.id() == id)
+    }
+
+    fn bubble_click(&mut self) {
+        let (Some(b), Some((cx, cy))) = (self.bubble_open.as_ref(), self.platform.cursor_pos()) else { return };
+        let (x, y) = (cx - b.left, cy - b.top);
+        let scale = self.settings.size.zoom();
+        match self.bubble.click(x, y, scale) {
+            Some(choice) => {
+                self.brain.choose(choice, self.now());
+                self.bubble.reset();
+                self.bubble_open = None;
+            }
+            None => self.draw_bubble(self.platform.work_area()),
+        }
     }
 
     // ---------------------------------------------------------------- menu
@@ -389,6 +504,12 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
+        if self.is_bubble(id) {
+            if let WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } = ev {
+                self.bubble_click();
+            }
+            return;
+        }
         if self.is_menu(id) {
             match ev {
                 WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.menu_click(el),
@@ -414,7 +535,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
-                if self.menu.is_some() {
+                if self.last_show.is_some_and(|s| s.playing) {
+                    // right-click ends play rather than opening the menu
+                    self.cancel_pending = true;
+                } else if self.menu.is_some() {
                     self.close_menu();
                 } else {
                     self.open_menu(el, true);
@@ -436,6 +560,23 @@ impl ApplicationHandler for App {
         }
         self.tick(el);
     }
+}
+
+/// A heart at `zoom`, faded by `age` over its last HEART_FADE seconds.
+fn heart_image(zoom: u32, age: f64) -> crate::window::Rgba {
+    let f = rig::props::heart();
+    let z = zoom.max(1) as usize;
+    let fade = ((HEART_LIFE - age) / HEART_FADE).clamp(0.0, 1.0);
+    let mut img = crate::window::Rgba::new(f.w * z, f.h * z);
+    for y in 0..f.h * z {
+        for x in 0..f.w * z {
+            let s = ((y / z) * f.w + x / z) * 4;
+            let d = (y * f.w * z + x) * 4;
+            img.px[d..d + 3].copy_from_slice(&f.rgba[s..s + 3]);
+            img.px[d + 3] = (f.rgba[s + 3] as f64 * fade).round() as u8;
+        }
+    }
+    img
 }
 
 /// Run the pet until it quits.
