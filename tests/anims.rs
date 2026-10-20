@@ -241,3 +241,30 @@ fn rabbit_fallbacks_do_not_panic() {
         assert!(f.rgba.chunks(4).any(|p| p[3] > 0), "{a:?}");
     }
 }
+
+// ---------------------------------------------------------------- watch
+
+#[test]
+fn watch_looks_up_at_the_screen() {
+    // the user: "sometimes look at the screen like they are watching it with the user"
+    let p = rig::period(Pet::Dog, Anim::Watch);
+    for t in times(p, 12) {
+        let (w, s) = (dog_at(Anim::Watch, t), dog_at(Anim::Sit, t));
+        assert!(w.head_rot >= s.head_rot + 0.2, "t={t}: Alex's head not raised ({} vs sit {})", w.head_rot, s.head_rot);
+        assert!(w.tongue == 0.0, "t={t}: watching, not panting");
+    }
+    let stand = bun_at(Anim::Stand, 0.0);
+    for t in times(rig::period(Pet::Rabbit, Anim::Watch), 12) {
+        let w = bun_at(Anim::Watch, t);
+        assert!(w.head[1] >= stand.head[1] + 0.05, "t={t}: the bun's head not up");
+        assert!(w.head_rot >= stand.head_rot + 0.2, "t={t}: the bun's nose not raised");
+    }
+    for pet in [Pet::Dog, Pet::Rabbit] {
+        for i in 0..=20 {
+            let f = rig::render(&rig::pose(pet, Anim::Watch, look(), i as f64 * 0.3, None), look(), false);
+            if let Err(e) = renders_inside(&f, 300) {
+                panic!("{pet:?} watch t={}: {e}", i as f64 * 0.3);
+            }
+        }
+    }
+}

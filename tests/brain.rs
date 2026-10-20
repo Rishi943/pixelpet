@@ -336,3 +336,22 @@ fn time_jump_is_one_step() {
     let max = rig::speed(Pet::Dog, rig::look("classic"), Anim::Walk) * 0.1 * sim.unit_px + 1.0;
     assert!((sh.x - x0).abs() <= max, "jumped {} px (max {max})", (sh.x - x0).abs());
 }
+
+#[test]
+fn watching_the_screen_is_frequent_and_faces_it() {
+    let mut sim = Sim::new(Pet::Dog);
+    let centre = (sim.work.x + sim.work.w / 2) as f64;
+    let mut cur = (sim.last.anim, sim.last.anim_start);
+    let mut seq = vec![];
+    sim.run(10.0 * 3600.0, |_, sh| {
+        if (sh.anim, sh.anim_start) != cur {
+            cur = (sh.anim, sh.anim_start);
+            seq.push(sh.anim);
+            if sh.anim == Anim::Watch {
+                assert!((centre - sh.x) * sh.facing as f64 >= 0.0, "watching away from the screen at x={}", sh.x);
+            }
+        }
+    });
+    let n = |a: Anim| seq.iter().filter(|x| **x == a).count();
+    assert!(n(Anim::Watch) > n(Anim::Sit), "watch {} vs sit {}", n(Anim::Watch), n(Anim::Sit));
+}

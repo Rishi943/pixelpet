@@ -38,10 +38,12 @@ pub enum Anim {
     Stretch,
     Flop,
     Nudge,
+    /// Looking up at the screen, as if watching it with you (both species).
+    Watch,
 }
 
 impl Anim {
-    pub const ALL: [Anim; 15] = [
+    pub const ALL: [Anim; 16] = [
         Anim::Stand,
         Anim::Walk,
         Anim::Sit,
@@ -57,6 +59,7 @@ impl Anim {
         Anim::Stretch,
         Anim::Flop,
         Anim::Nudge,
+        Anim::Watch,
     ];
 
     pub fn from_name(s: &str) -> Option<Anim> {
@@ -80,6 +83,7 @@ impl Anim {
             Anim::Stretch => "stretch",
             Anim::Flop => "flop",
             Anim::Nudge => "nudge",
+            Anim::Watch => "watch",
         }
     }
 }

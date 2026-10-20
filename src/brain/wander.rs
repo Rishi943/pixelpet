@@ -35,8 +35,10 @@ impl Rng {
     }
 }
 
-const WEIGHTS: [(Anim, f64); 6] = [
+const WEIGHTS: [(Anim, f64); 7] = [
     (Anim::Walk, 4.0),
+    // the user asked for this often: looking up at the screen with you
+    (Anim::Watch, 2.0),
     (Anim::Stand, 1.4),
     (Anim::Sit, 1.4),
     (Anim::Tilt, 1.1),
@@ -89,6 +91,7 @@ impl Wander {
             Anim::Tilt => 4.0,
             Anim::Hop => 2.4,
             Anim::Sleep => self.rng.range(9.6, 14.4),
+            Anim::Watch => self.rng.range(6.0, 12.0),
             _ => 2.0, // not in the script
         };
         let turn = anim == Anim::Walk && self.rng.f64() < 0.35;

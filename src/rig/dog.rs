@@ -306,6 +306,7 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Lean => 3.0,
         Anim::Tug => 0.9,
         Anim::Stretch => 1.5,
+        Anim::Watch => 6.0,
         // not dog anims: the poses they fall back to
         Anim::Flop => 9.6,
         Anim::Nudge => 0.9,
@@ -342,6 +343,7 @@ pub fn pose(anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
         Anim::Lean => lean(&b, t),
         Anim::Tug => tug(&b, t),
         Anim::Stretch => stretch(&b, t),
+        Anim::Watch => watch(&b, t),
         Anim::Nudge => walk(&b, t, toy),
     }
 }
@@ -454,6 +456,20 @@ fn wag(b: &Body, t: f64) -> Skel {
         p = add(p, [v[0] * turn.cos(), v[1]]);
         s.tail[i + 1] = p;
     }
+    s
+}
+
+/// Sits and looks up at the screen with you, head drifting a little as if
+/// following something there.
+fn watch(b: &Body, t: f64) -> Skel {
+    let mut s = sit_skel(b, t, None, false, 0.0);
+    let drift = (t * TAU / 6.0).sin();
+    s.head = add(s.head, [-0.02 + 0.01 * drift, 0.05]);
+    s.head_rot += 0.5 + 0.08 * drift;
+    s.neck_b = add(s.head, rot([-0.07 * b.head, -0.07 * b.head], s.head_rot));
+    s.mouth = 0.05;
+    s.tongue = 0.0;
+    s.ear_back = -0.05;
     s
 }
 

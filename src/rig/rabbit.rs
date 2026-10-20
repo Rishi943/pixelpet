@@ -181,6 +181,7 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Nudge => 0.7,
         Anim::Tug => 0.8,
         Anim::Stretch => 1.5,
+        Anim::Watch => 6.0,
         // not rabbit anims: the poses they fall back to
         Anim::Run | Anim::Carry => 0.62,
         Anim::Wag | Anim::Lean => 5.2,
@@ -451,6 +452,21 @@ pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
                 ..l
             };
             lerp(&l, &long, k)
+        }
+        // sits up a little and looks up at the screen, nose going
+        Anim::Watch => {
+            let drift = (t * TAU / 6.0).sin();
+            Skel {
+                sh: [0.10, 0.48],
+                head: [0.30 + 0.01 * drift, 0.82 + 0.12 * (b.head - 1.0)],
+                head_rot: 0.30 + 0.06 * drift,
+                ear_n: 0.0,
+                ear_f: 0.3,
+                nose: twitch(t),
+                eyes: blink(t),
+                breath: 0.015 * (t * TAU / 2.2).sin(),
+                ..l
+            }
         }
         // not rabbit anims: the poses they fall back to
         Anim::Run | Anim::Carry => pose(Anim::Walk, look, t),

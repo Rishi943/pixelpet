@@ -87,6 +87,8 @@ pub struct Brain {
     pin_start: Option<f64>,
     last_now: f64,
     last_idle: Option<f64>,
+    /// the work area's middle, which a watching pet faces
+    centre: f64,
 }
 
 impl Brain {
@@ -112,6 +114,7 @@ impl Brain {
             pin_start: None,
             last_now: now,
             last_idle: None,
+            centre: work.x as f64 + work.w as f64 / 2.0,
         };
         b.next_wander(now);
         b
@@ -134,6 +137,9 @@ impl Brain {
         let n = self.wander.next();
         if n.turn {
             self.facing = -self.facing;
+        }
+        if n.anim == Anim::Watch {
+            self.facing = if self.centre >= self.x { 1 } else { -1 };
         }
         self.mode = Mode::Wander;
         self.w_anim = n.anim;
@@ -181,6 +187,7 @@ impl Brain {
         let lo = inp.work.x as f64 + 1.2 * u;
         let hi = (inp.work.x + inp.work.w) as f64 - 1.2 * u;
         self.x = self.x.clamp(lo, hi.max(lo));
+        self.centre = inp.work.x as f64 + inp.work.w as f64 / 2.0;
 
         // ---- mouse: click vs drag
         match inp.mouse {
