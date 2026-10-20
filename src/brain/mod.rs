@@ -2,16 +2,27 @@
 //! OS and no pixels. Coordinates are physical pixels; `x` is the pet's ground
 //! point and `lift` its height above the ground.
 
+pub mod pet;
 pub mod wander;
 
 use crate::platform::Rect;
-use crate::rig::{self, Anim, Look, Pet};
+use crate::rig::{self, Anim, Food, Look, Pet, Toy};
 use crate::settings::{FullscreenMode, Settings};
 use wander::Wander;
 
 /// Idle seconds before the pet lies down for a nap.
 pub const NAP_AFTER: f64 = 180.0;
-const WAKE_STAND: f64 = 1.5;
+/// Hovering this long opens the bubble (spec §4).
+pub const BUBBLE_AFTER: f64 = 0.4;
+/// The bubble stays this long after the cursor leaves the pet and the bubble.
+pub const BUBBLE_LINGER: f64 = 0.6;
+/// Strokes before the pet settles in (Alex leans, the bun flops).
+pub const STROKES_TO_SETTLE: u32 = 6;
+/// Play ends after this long with no mouse input.
+pub const PLAY_IDLE_END: f64 = 60.0;
+const HEART_LIFE: f64 = 1.2;
+/// Petting ends once the cursor has been off the pet this long.
+const PET_LEAVE: f64 = 0.5;
 const DRAG_START_PX: i32 = 4;
 const GRAVITY: f64 = 2400.0;
 const LANDED_STAND: f64 = 1.0;
@@ -36,6 +47,58 @@ pub struct Inputs {
     pub mouse: Mouse,
     pub idle: Option<f64>,
     pub fullscreen: Option<bool>,
+    /// The cursor is over the open bubble.
+    pub over_bubble: bool,
+    /// The cursor is over the toy.
+    pub over_toy: bool,
+    /// End play now (right-click on the pet or Esc during play), for one tick.
+    pub cancel: bool,
+}
+
+/// A choice from the bubble.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Choice {
+    Pet,
+    Fetch(Toy),
+    Tug,
+    Feed(Food),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ToyShow {
+    pub toy: Toy,
+    /// ground x (physical px, at depth 0 coordinates), height above the
+    /// ground and depth
+    pub x: f64,
+    pub lift: f64,
+    pub depth: f64,
+    pub in_mouth: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoodShow {
+    pub food: Food,
+    pub x: f64,
+    pub lift: f64,
+    pub bites: u8,
+}
+
+/// Things drawn with the pet.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Props {
+    pub toy: Option<ToyShow>,
+    pub food: Option<FoodShow>,
+    /// The rope's far end: the cursor.
+    pub rope_to: Option<(i32, i32)>,
+    /// When each heart was floated (shown for 1.2 s).
+    pub hearts: [Option<f64>; 6],
+    /// When the crumbs started falling.
+    pub crumbs: Option<f64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Play {
+    Pet { strokes: pet::Strokes, off_since: Option<f64> },
 }
 
 /// What to show this frame.
@@ -52,6 +115,14 @@ pub struct Show {
     pub zzz: bool,
     /// Seconds the cursor has rested on the pet (0 when it isn't).
     pub hover_for: f64,
+    /// The bubble is open.
+    pub bubble: bool,
+    /// How far into the screen the pet is (0 = on the ground line).
+    pub depth: f64,
+    pub eyes_closed: bool,
+    /// Pet, fetch, tug or feed is going on.
+    pub playing: bool,
+    pub props: Props,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,6 +134,7 @@ enum Mode {
     Drag,
     Fall { v: f64 },
     Landed { until: f64 },
+    Play(Play),
 }
 
 pub struct Brain {
@@ -89,6 +161,15 @@ pub struct Brain {
     last_idle: Option<f64>,
     /// the work area's middle, which a watching pet faces
     centre: f64,
+    bubble: bool,
+    bubble_off_since: Option<f64>,
+    props: Props,
+    heart_i: usize,
+    eyes_closed: bool,
+    depth: f64,
+    /// last mouse input during play (for PLAY_IDLE_END)
+    play_input_at: f64,
+    last_cursor: Option<(i32, i32)>,
 }
 
 impl Brain {
@@ -115,6 +196,14 @@ impl Brain {
             last_now: now,
             last_idle: None,
             centre: work.x as f64 + work.w as f64 / 2.0,
+            bubble: false,
+            bubble_off_since: None,
+            props: Props::default(),
+            heart_i: 0,
+            eyes_closed: false,
+            depth: 0.0,
+            play_input_at: now,
+            last_cursor: None,
         };
         b.next_wander(now);
         b
@@ -124,6 +213,64 @@ impl Brain {
     /// update). Used when the pet is swapped, so the new one appears in place.
     pub fn place(&mut self, x: f64) {
         self.x = x;
+    }
+
+    /// A choice from the bubble. Closes the bubble and starts that play.
+    pub fn choose(&mut self, c: Choice, now: f64) {
+        self.bubble = false;
+        self.bubble_off_since = None;
+        self.hover_start = None;
+        self.play_input_at = now;
+        match c {
+            Choice::Pet => {
+                self.mode = Mode::Play(Play::Pet { strokes: pet::Strokes::default(), off_since: None });
+                self.show_anim(Anim::Stand, now);
+            }
+            // fetch, tug and feed: M2 tasks 7-9
+            Choice::Fetch(_) | Choice::Tug | Choice::Feed(_) => {}
+        }
+    }
+
+    /// Back to wandering: props gone, eyes open, on the ground line.
+    fn end_play(&mut self, now: f64) {
+        self.props = Props::default();
+        self.eyes_closed = false;
+        self.depth = 0.0;
+        self.next_wander(now);
+    }
+
+    fn play(&mut self, p: Play, inp: &Inputs, now: f64) {
+        match p {
+            Play::Pet { mut strokes, mut off_since } => {
+                if inp.over_pet {
+                    off_since = None;
+                } else if off_since.is_none() {
+                    off_since = Some(now);
+                }
+                if off_since.is_some_and(|t| now - t >= PET_LEAVE) {
+                    return self.end_play(now);
+                }
+                if let (Some((cx, _)), true) = (inp.cursor, inp.over_pet) {
+                    if strokes.feed(cx as f64, inp.unit_px) {
+                        self.props.hearts[self.heart_i % 6] = Some(now);
+                        self.heart_i += 1;
+                    }
+                }
+                let n = strokes.count;
+                self.eyes_closed = n >= 1;
+                let anim = match (self.pet, n) {
+                    (_, 0) => Anim::Stand,
+                    (Pet::Dog, n) if n >= STROKES_TO_SETTLE => Anim::Lean,
+                    (Pet::Dog, _) => Anim::Wag,
+                    (Pet::Rabbit, n) if n >= STROKES_TO_SETTLE => Anim::Flop,
+                    (Pet::Rabbit, _) => Anim::Stand,
+                };
+                if anim != self.anim {
+                    self.show_anim(anim, now);
+                }
+                self.mode = Mode::Play(Play::Pet { strokes, off_since });
+            }
+        }
     }
 
     /// Hold one anim (or release with None). Drag still works; nothing else
@@ -199,6 +346,10 @@ impl Brain {
                     let (ddx, ddy) = (px - dx, py - dy);
                     if ddx * ddx + ddy * ddy > DRAG_START_PX * DRAG_START_PX {
                         self.end_hover(now);
+                        // picking the pet up ends any play
+                        self.props = Props::default();
+                        self.eyes_closed = false;
+                        self.depth = 0.0;
                         self.mode = Mode::Drag;
                     }
                 }
@@ -224,6 +375,22 @@ impl Brain {
             (None, _) => true,
         };
         self.last_idle = idle;
+        // play input: any mouse event or cursor movement
+        if inp.mouse != Mouse::None || inp.cursor != self.last_cursor {
+            self.play_input_at = now;
+        }
+        self.last_cursor = inp.cursor;
+        if let Mode::Play(_) = self.mode {
+            if inp.cancel || now - self.play_input_at >= PLAY_IDLE_END {
+                self.end_play(now);
+            }
+        }
+        // hearts float for HEART_LIFE
+        for h in self.props.hearts.iter_mut() {
+            if h.is_some_and(|t| now - t >= HEART_LIFE) {
+                *h = None;
+            }
+        }
         match self.mode {
             Mode::Drag => {
                 if self.anim != Anim::Stand {
@@ -257,17 +424,22 @@ impl Brain {
             }
             _ if self.mode != Mode::Nap && idle.is_some_and(|i| i >= NAP_AFTER) => {
                 self.end_hover(now);
+                self.props = Props::default();
+                self.eyes_closed = false;
+                self.depth = 0.0;
                 self.mode = Mode::Nap;
                 self.wander.note(Anim::Sleep);
                 self.show_anim(Anim::Sleep, now);
             }
             Mode::Nap => {
                 if input_since {
-                    self.mode = Mode::Waking { until: now + WAKE_STAND };
+                    // wakes, stretches, then walks to the cursor (spec §4)
+                    self.mode = Mode::Waking { until: now + rig::period(self.pet, Anim::Stretch) };
                     self.wander.note(Anim::Stand);
-                    self.show_anim(Anim::Stand, now);
+                    self.show_anim(Anim::Stretch, now);
                 }
             }
+            Mode::Play(p) => self.play(p, inp, now),
             _ if inp.over_pet => {
                 let start = *self.hover_start.get_or_insert_with(|| {
                     self.hover_left = (self.w_end - now).max(0.0);
@@ -310,6 +482,22 @@ impl Brain {
         }
 
         let hover_for = self.hover_start.map_or(0.0, |h| now - h);
+        // the bubble: after a hover, while wandering; stays while the cursor
+        // is on the pet or the bubble, lingers a moment after
+        let can_bubble = matches!(self.mode, Mode::Wander | Mode::Seek) && self.pinned.is_none();
+        if !can_bubble {
+            self.bubble = false;
+        } else if hover_for >= BUBBLE_AFTER {
+            self.bubble = true;
+        }
+        if self.bubble {
+            if inp.over_pet || inp.over_bubble {
+                self.bubble_off_since = None;
+            } else if now - *self.bubble_off_since.get_or_insert(now) >= BUBBLE_LINGER {
+                self.bubble = false;
+                self.bubble_off_since = None;
+            }
+        }
         let fs = inp.fullscreen == Some(true);
         let (visible, opacity) = match (fs, s.fullscreen) {
             (true, FullscreenMode::Hide) => (false, s.opacity),
@@ -326,6 +514,11 @@ impl Brain {
             opacity,
             zzz: self.anim == Anim::Sleep,
             hover_for,
+            bubble: self.bubble,
+            depth: self.depth,
+            eyes_closed: self.eyes_closed,
+            playing: matches!(self.mode, Mode::Play(_)),
+            props: self.props,
         }
     }
 

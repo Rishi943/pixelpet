@@ -180,6 +180,9 @@ impl App {
             mouse,
             idle: self.idle,
             fullscreen: self.fullscreen,
+            over_bubble: false,
+            over_toy: false,
+            cancel: false,
         };
         let show = self.brain.update(&inp, &self.settings);
         self.was_over = inp.over_pet;
@@ -204,7 +207,7 @@ impl App {
             }
             return;
         }
-        let (_, dx, dy) = self.view.frame(show, now, zoom, false, 0.0);
+        let (_, dx, dy) = self.view.frame(show, now, zoom, false, show.depth);
         let z = zoom as i32;
         // snap to whole art pixels in x
         let left = (show.x.round() as i32 + dx).div_euclid(z) * z;

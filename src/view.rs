@@ -124,6 +124,7 @@ struct FrameKey {
     collar: bool,
     /// the look's `r` at this depth
     r: u32,
+    eyes_closed: bool,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -219,12 +220,16 @@ impl View {
             blend_id: self.blend.as_ref().map_or(0, |b| b.id),
             collar,
             r: look.r as u32,
+            eyes_closed: show.eyes_closed,
         };
         if self.frame_key != Some(key) {
             let t = tick as f64 / FPS;
             let mut s = rig::pose(self.pet, show.anim, look, t, None);
             if let (Some(b), true) = (&self.blend, step < 3) {
                 s = rig::lerp(&b.from, &s, step as f64 / BLEND_STEPS);
+            }
+            if show.eyes_closed {
+                s = rig::with_eyes_closed(s);
             }
             self.frame = Some(rig::render(&s, look, collar));
             self.frame_key = Some(key);

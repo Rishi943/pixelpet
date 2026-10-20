@@ -10,7 +10,7 @@ fn px(img: &pixelpet::window::Rgba, x: usize, y: usize) -> [u8; 4] {
 }
 
 fn show(anim: Anim, anim_start: f64) -> Show {
-    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0 }
+    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0, bubble: false, depth: 0.0, eyes_closed: false, playing: false, props: Default::default() }
 }
 
 #[test]
@@ -114,4 +114,17 @@ fn offset_puts_feet_on_the_ground() {
     let img = img.clone();
     let lowest = (0..h).rev().find(|&y| (0..w).any(|x| px(&img, x as usize, y as usize)[3] > 0)).unwrap();
     assert_eq!(lowest + dy, -1, "feet end one pixel above the ground line");
+}
+
+#[test]
+fn eyes_closed_changes_the_frame() {
+    let look = rig::look("classic");
+    let (mut a, mut b) = (View::new(Pet::Dog, look), View::new(Pet::Dog, look));
+    let open = show(Anim::Stand, 0.0);
+    let shut = Show { eyes_closed: true, ..open };
+    let x = a.frame(&open, 0.1, 3, false, 0.0).0.px.clone();
+    let y = b.frame(&shut, 0.1, 3, false, 0.0).0.px.clone();
+    assert_ne!(x, y, "closing the eyes changed nothing");
+    // and the cache keys on it: the same view switches when asked
+    assert_eq!(a.frame(&shut, 0.1, 3, false, 0.0).0.px, y);
 }

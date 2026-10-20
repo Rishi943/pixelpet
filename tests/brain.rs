@@ -1,6 +1,6 @@
 //! Behaviour scenarios on a fake clock. Every test steps `update` at 30 Hz.
 
-use pixelpet::brain::{Brain, Inputs, Mouse, Show};
+use pixelpet::brain::{Brain, Choice, Inputs, Mouse, Show};
 use pixelpet::platform::Rect;
 use pixelpet::rig::{self, Anim, Pet};
 use pixelpet::settings::{FullscreenMode, Settings};
@@ -19,6 +19,10 @@ struct Sim {
     over_pet: bool,
     idle: Option<f64>,
     fullscreen: Option<bool>,
+    over_bubble: bool,
+    over_toy: bool,
+    /// set for one step, as the app does on right-click or Esc during play
+    cancel: bool,
     last: Show,
 }
 
@@ -30,9 +34,35 @@ impl Sim {
     fn with_work(pet: Pet, work: Rect, unit_px: f64) -> Sim {
         let mut brain = Brain::new(pet, SEED, 0.0, work);
         let s = Settings::default();
-        let inp = Inputs { now: 0.0, work, unit_px, cursor: None, over_pet: false, mouse: Mouse::None, idle: Some(0.0), fullscreen: Some(false) };
+        let inp = Inputs {
+            now: 0.0,
+            work,
+            unit_px,
+            cursor: None,
+            over_pet: false,
+            mouse: Mouse::None,
+            idle: Some(0.0),
+            fullscreen: Some(false),
+            over_bubble: false,
+            over_toy: false,
+            cancel: false,
+        };
         let last = brain.update(&inp, &s);
-        Sim { brain, s, now: 0.0, work, unit_px, cursor: None, over_pet: false, idle: Some(0.0), fullscreen: Some(false), last }
+        Sim {
+            brain,
+            s,
+            now: 0.0,
+            work,
+            unit_px,
+            cursor: None,
+            over_pet: false,
+            idle: Some(0.0),
+            fullscreen: Some(false),
+            over_bubble: false,
+            over_toy: false,
+            cancel: false,
+            last,
+        }
     }
 
     fn step_with(&mut self, dt: f64, mouse: Mouse) -> Show {
@@ -46,7 +76,11 @@ impl Sim {
             mouse,
             idle: self.idle,
             fullscreen: self.fullscreen,
+            over_bubble: self.over_bubble,
+            over_toy: self.over_toy,
+            cancel: self.cancel,
         };
+        self.cancel = false;
         self.last = self.brain.update(&inp, &self.s);
         self.last
     }
@@ -186,10 +220,10 @@ fn nap_after_three_idle_minutes() {
         let _ = sim;
         assert_eq!(sh.anim, Anim::Sleep);
     });
-    // input: wakes to stand at once
+    // input: wakes and stretches at once
     sim.idle = Some(0.0);
     let sh = sim.step();
-    assert_eq!(sh.anim, Anim::Stand);
+    assert_eq!(sh.anim, Anim::Stretch);
     assert!(!sh.zzz);
     // after 1.5 s it walks towards the cursor
     sim.run(1.6, |_, _| {});
@@ -218,7 +252,7 @@ fn wakes_on_any_input_between_idle_polls() {
     sim.run(2.0, |_, _| {});
     assert_eq!(sim.last.anim, Anim::Sleep, "the same stale idle value keeps it asleep");
     sim.idle = Some(1.5);
-    assert_eq!(sim.step().anim, Anim::Stand, "idle went down: there was input");
+    assert_eq!(sim.step().anim, Anim::Stretch, "idle went down: there was input");
 }
 
 #[test]
@@ -354,4 +388,167 @@ fn watching_the_screen_is_frequent_and_faces_it() {
     });
     let n = |a: Anim| seq.iter().filter(|x| **x == a).count();
     assert!(n(Anim::Watch) > n(Anim::Sit), "watch {} vs sit {}", n(Anim::Watch), n(Anim::Sit));
+}
+
+// ---------------------------------------------------------------- M2: bubble, petting
+
+/// Wander a little, then put the cursor on the pet.
+fn on_the_pet(pet: Pet) -> Sim {
+    let mut sim = Sim::new(pet);
+    sim.run(2.0, |_, _| {});
+    sim.cursor = Some((sim.last.x as i32, 1000));
+    sim.over_pet = true;
+    sim
+}
+
+#[test]
+fn bubble_after_hover() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.run(0.36, |_, _| {});
+    assert!(!sim.last.bubble, "open after {} s", sim.last.hover_for);
+    sim.run(0.1, |_, _| {});
+    assert!(sim.last.bubble, "closed after {} s", sim.last.hover_for);
+    // onto the bubble: stays
+    sim.over_pet = false;
+    sim.over_bubble = true;
+    sim.run(2.0, |_, sh| assert!(sh.bubble, "closed while over the bubble"));
+    // over neither: lingers 0.6 s
+    sim.over_bubble = false;
+    sim.run(0.5, |_, sh| assert!(sh.bubble, "closed too soon"));
+    sim.run(0.2, |_, _| {});
+    assert!(!sim.last.bubble, "still open");
+}
+
+#[test]
+fn no_bubble_while_asleep_or_dragged() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.idle = Some(181.0);
+    sim.step();
+    sim.over_pet = true;
+    sim.run(2.0, |_, sh| assert!(!sh.bubble, "bubble while asleep"));
+    let mut sim = on_the_pet(Pet::Dog);
+    let (x, y) = sim.cursor.unwrap();
+    sim.step_with(DT, Mouse::Down(x, y));
+    sim.step_with(DT, Mouse::Move(x, y - 40));
+    for _ in 0..60 {
+        let sh = sim.step_with(DT, Mouse::Move(x, y - 40));
+        assert!(!sh.bubble, "bubble while dragged");
+    }
+}
+
+/// Sweep the cursor across the pet: `n` strokes of `px` each way.
+fn stroke(sim: &mut Sim, n: usize, px: i32, mut each: impl FnMut(&Show)) {
+    let steps = 12;
+    for k in 0..n {
+        let dir = if k % 2 == 0 { 1 } else { -1 };
+        for i in 0..steps {
+            // spread px over the steps exactly (integer division would lose it)
+            let d = (i + 1) as i32 * px / steps as i32 - i as i32 * px / steps as i32;
+            let (x, y) = sim.cursor.unwrap();
+            sim.cursor = Some((x + dir * d, y));
+            let sh = sim.step();
+            each(&sh);
+        }
+    }
+}
+
+fn hearts_seen(sim: &mut Sim, n: usize, px: i32, eyes: &mut Vec<bool>, anims: &mut Vec<Anim>) -> usize {
+    let mut seen: Vec<f64> = vec![];
+    stroke(sim, n, px, |sh| {
+        for h in sh.props.hearts.iter().flatten() {
+            if !seen.iter().any(|s| (s - h).abs() < 1e-9) {
+                seen.push(*h);
+            }
+        }
+        eyes.push(sh.eyes_closed);
+        anims.push(sh.anim);
+    });
+    seen.len()
+}
+
+#[test]
+fn petting_alex() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.brain.choose(Choice::Pet, sim.now);
+    assert!(sim.step().playing);
+    let (mut eyes, mut anims) = (vec![], vec![]);
+    // 7 sweeps of 60 px (~0.9 units) = 6 direction changes
+    let hearts = hearts_seen(&mut sim, 7, 60, &mut eyes, &mut anims);
+    assert_eq!(hearts, 6, "one heart per stroke");
+    assert!(eyes.iter().skip(13).all(|e| *e), "eyes closed from the first stroke");
+    assert!(anims.iter().skip(13).take(40).any(|a| *a == Anim::Wag), "wags while petted");
+    assert_eq!(sim.last.anim, Anim::Lean, "leans in after 6 strokes");
+    // leaving the pet ends it
+    sim.over_pet = false;
+    sim.run(0.6, |_, _| {});
+    assert!(!sim.last.playing, "still petting after the cursor left");
+    assert!(!sim.last.eyes_closed);
+}
+
+#[test]
+fn petting_the_bun() {
+    let mut sim = on_the_pet(Pet::Rabbit);
+    sim.brain.choose(Choice::Pet, sim.now);
+    sim.step();
+    let (mut eyes, mut anims) = (vec![], vec![]);
+    let hearts = hearts_seen(&mut sim, 7, 60, &mut eyes, &mut anims);
+    assert_eq!(hearts, 6);
+    assert!(eyes.iter().skip(13).all(|e| *e));
+    assert!(anims.iter().skip(13).take(40).all(|a| *a == Anim::Stand), "the bun closes its eyes, standing");
+    assert_eq!(sim.last.anim, Anim::Flop, "flops after 6 strokes");
+}
+
+#[test]
+fn jitter_is_not_a_stroke() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.brain.choose(Choice::Pet, sim.now);
+    sim.step();
+    let (mut eyes, mut anims) = (vec![], vec![]);
+    // 10 px each way is under 0.6 units (40 px)
+    assert_eq!(hearts_seen(&mut sim, 12, 10, &mut eyes, &mut anims), 0);
+}
+
+#[test]
+fn nap_ends_play() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.brain.choose(Choice::Pet, sim.now);
+    sim.step();
+    let (mut eyes, mut anims) = (vec![], vec![]);
+    hearts_seen(&mut sim, 3, 60, &mut eyes, &mut anims);
+    sim.idle = Some(181.0);
+    let sh = sim.step();
+    assert!(!sh.playing);
+    assert_eq!(sh.anim, Anim::Sleep);
+    assert!(sh.props.hearts.iter().all(|h| h.is_none()) && sh.props.toy.is_none() && sh.props.food.is_none());
+    assert!(!sh.eyes_closed || sh.anim == Anim::Sleep);
+}
+
+#[test]
+fn cancel_ends_petting() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.brain.choose(Choice::Pet, sim.now);
+    sim.step();
+    sim.cancel = true;
+    let sh = sim.step();
+    assert!(!sh.playing);
+    assert!(!sh.eyes_closed);
+}
+
+#[test]
+fn fullscreen_hides_play_too() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.brain.choose(Choice::Pet, sim.now);
+    sim.step();
+    sim.fullscreen = Some(true);
+    sim.s.fullscreen = FullscreenMode::Hide;
+    assert!(!sim.step().visible);
+}
+
+#[test]
+fn choosing_closes_the_bubble() {
+    let mut sim = on_the_pet(Pet::Dog);
+    sim.run(0.5, |_, _| {});
+    assert!(sim.last.bubble);
+    sim.brain.choose(Choice::Pet, sim.now);
+    assert!(!sim.step().bubble);
 }
