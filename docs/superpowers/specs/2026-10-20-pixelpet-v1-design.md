@@ -172,13 +172,23 @@ launch, if autostart is on and the program has moved, the entry is rewritten.
 One Rust program. Outside crates:
 
 - `winit` for the window and input.
-- `softbuffer` to put a pixel buffer on screen.
 - `windows-sys` on Windows only, with the same version winit already uses,
   for the few Win32 calls in §8.
 
 macOS and Linux calls go through crates winit already pulls in (`objc2*`,
 `x11-dl`), or small `extern "C"` declarations. Nothing else ships. Dev-only
-crates for tests (for example `png`) are fine.
+crates for tests are fine.
+
+**Showing pixels (changed during planning).** `softbuffer` can't reliably do
+per-pixel transparency, so each OS uses its native see-through path instead:
+
+- Windows: a layered window fed by `UpdateLayeredWindow`. This also passes
+  clicks through fully transparent pixels by itself.
+- macOS: a non-opaque window whose layer shows a CGImage with alpha (M3).
+- Linux: X11 with a 32-bit visual, running through XWayland on Wayland
+  desktops (M3).
+
+M1 starts with a spike that proves the Windows path.
 
 ```
 src/
