@@ -103,6 +103,18 @@ pub fn compose(frame: &Frame, r: f64, zoom: u32, facing: i8, zzz: &[(f64, f64)],
     img
 }
 
+/// Is the cursor on the pet? `img` sits with its top-left at `at`. A hover
+/// starts only on an opaque pixel; once `sticky` (already hovering) it holds
+/// anywhere inside the image, because the look-at-you pose has a different
+/// outline and would otherwise end the hover and start it again each frame.
+pub fn over_image(img: &Rgba, at: (i32, i32), cursor: (i32, i32), sticky: bool) -> bool {
+    let (ix, iy) = (cursor.0 - at.0, cursor.1 - at.1);
+    if ix < 0 || iy < 0 || ix as usize >= img.w || iy as usize >= img.h {
+        return false;
+    }
+    sticky || img.px[(iy as usize * img.w + ix as usize) * 4 + 3] > 0
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct FrameKey {
     anim: Anim,

@@ -86,6 +86,7 @@ pub struct Brain {
     pinned: Option<Anim>,
     pin_start: Option<f64>,
     last_now: f64,
+    last_idle: Option<f64>,
 }
 
 impl Brain {
@@ -110,6 +111,7 @@ impl Brain {
             pinned: None,
             pin_start: None,
             last_now: now,
+            last_idle: None,
         };
         b.next_wander(now);
         b
@@ -208,6 +210,13 @@ impl Brain {
         }
 
         let idle = inp.idle;
+        // idle is polled, so input between polls shows up as idle going down
+        let input_since = match (idle, self.last_idle) {
+            (Some(i), Some(prev)) => i < 1.0 || i < prev - 1e-3,
+            (Some(i), None) => i < 1.0,
+            (None, _) => true,
+        };
+        self.last_idle = idle;
         match self.mode {
             Mode::Drag => {
                 if self.anim != Anim::Stand {
@@ -246,7 +255,7 @@ impl Brain {
                 self.show_anim(Anim::Sleep, now);
             }
             Mode::Nap => {
-                if idle.map_or(true, |i| i < 1.0) {
+                if input_since {
                     self.mode = Mode::Waking { until: now + WAKE_STAND };
                     self.wander.note(Anim::Stand);
                     self.show_anim(Anim::Stand, now);

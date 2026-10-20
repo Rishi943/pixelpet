@@ -85,6 +85,22 @@ fn blend_takes_three_steps() {
 }
 
 #[test]
+fn hover_hit_is_sticky_inside_the_image() {
+    use pixelpet::view::over_image;
+    // a 4x4 image at (100, 50) with one opaque pixel at (1, 1)
+    let mut img = pixelpet::window::Rgba::new(4, 4);
+    img.px[(4 + 1) * 4 + 3] = 255;
+    let at = (100, 50);
+    assert!(over_image(&img, at, (101, 51), false), "opaque pixel starts a hover");
+    assert!(!over_image(&img, at, (103, 53), false), "a transparent pixel does not start one");
+    // once hovering, the pose changes under the cursor; the hover holds
+    // anywhere inside the image so it cannot flicker
+    assert!(over_image(&img, at, (103, 53), true));
+    assert!(!over_image(&img, at, (104, 53), true), "outside the image ends it");
+    assert!(!over_image(&img, at, (99, 51), true));
+}
+
+#[test]
 fn offset_puts_feet_on_the_ground() {
     let look = rig::look("classic");
     let mut v = View::new(Pet::Dog, look);

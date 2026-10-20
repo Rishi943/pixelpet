@@ -12,6 +12,11 @@ param(
     [int]$H = -1
 )
 
+# only one PixelPet can run; a second copy would exit at once
+if (Get-Process -Name PixelPet -ErrorAction SilentlyContinue) {
+    Write-Output 'PixelPet is already running: quit it from its menu first.'
+    exit 1
+}
 $env:PIXELPET_PIN = $Pin
 $env:PIXELPET_EXIT_AFTER = [string]($Wait + 2)
 $p = Start-Process -FilePath $Exe -PassThru

@@ -206,6 +206,21 @@ fn nap_after_three_idle_minutes() {
 }
 
 #[test]
+fn wakes_on_any_input_between_idle_polls() {
+    // the app polls idle every 2 s, so a single nudge can show up as
+    // idle = 1.5 s: still input since the last poll, so it must wake
+    let mut sim = Sim::new(Pet::Dog);
+    sim.idle = Some(181.0);
+    sim.run(1.0, |_, _| {});
+    assert_eq!(sim.last.anim, Anim::Sleep);
+    sim.idle = Some(183.0);
+    sim.run(2.0, |_, _| {});
+    assert_eq!(sim.last.anim, Anim::Sleep, "the same stale idle value keeps it asleep");
+    sim.idle = Some(1.5);
+    assert_eq!(sim.step().anim, Anim::Stand, "idle went down: there was input");
+}
+
+#[test]
 fn hover_looks_and_counts() {
     let mut sim = Sim::new(Pet::Dog);
     sim.run(5.0, |_, _| {});

@@ -19,6 +19,23 @@ impl Rect {
     }
 }
 
+/// The ground with an auto-hide taskbar in view. Windows leaves an
+/// auto-hide taskbar inside the work area, so when it slides up it would
+/// cover the pet; the pet rides on its top edge instead. A hidden one (a few
+/// px showing), a normal one (already outside the work area), or one docked
+/// at the top or side changes nothing.
+pub fn ground_with_taskbar(work: Rect, bar: Option<Rect>) -> Rect {
+    let Some(bar) = bar else { return work };
+    let spans = bar.x < work.x + work.w && bar.x + bar.w > work.x && bar.w * 2 >= work.w;
+    let at_bottom = bar.y > work.y + work.h / 2;
+    let showing = work.bottom() - bar.y;
+    if spans && at_bottom && showing > 4 && bar.y < work.bottom() {
+        Rect { h: bar.y - work.y, ..work }
+    } else {
+        work
+    }
+}
+
 pub trait Platform {
     /// Global cursor position, if the OS tells us.
     fn cursor_pos(&self) -> Option<(i32, i32)>;
@@ -123,6 +140,27 @@ impl Platform for Fake {
 #[cfg(windows)]
 mod windows;
 
+/// Held for as long as this is the one running PixelPet.
+pub struct InstanceGuard {
+    #[cfg(windows)]
+    _inner: windows::Mutex,
+}
+
+/// Claim the single-instance lock `name`. None means another PixelPet
+/// already holds it. Where the OS has no support (M1: not Windows) the claim
+/// always succeeds.
+pub fn claim_single_instance(name: &str) -> Option<InstanceGuard> {
+    #[cfg(windows)]
+    {
+        windows::Mutex::claim(name).map(|m| InstanceGuard { _inner: m })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = name;
+        Some(InstanceGuard {})
+    }
+}
+
 /// The real platform for this OS (`Stub` where M1 has none).
 pub fn native() -> Box<dyn Platform> {
     #[cfg(windows)]
@@ -132,5 +170,41 @@ pub fn native() -> Box<dyn Platform> {
     #[cfg(not(windows))]
     {
         Box::new(Stub)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WORK: Rect = Rect { x: 0, y: 0, w: 2560, h: 1440 };
+
+    #[test]
+    fn shown_autohide_taskbar_lifts_the_ground() {
+        let bar = Rect { x: 0, y: 1380, w: 2560, h: 60 };
+        assert_eq!(ground_with_taskbar(WORK, Some(bar)).bottom(), 1380);
+    }
+
+    #[test]
+    fn hidden_autohide_taskbar_leaves_the_ground() {
+        // hidden: only a 2 px sliver is on screen
+        let bar = Rect { x: 0, y: 1438, w: 2560, h: 60 };
+        assert_eq!(ground_with_taskbar(WORK, Some(bar)), WORK);
+        // half-way through sliding up: the ground follows it
+        let bar = Rect { x: 0, y: 1410, w: 2560, h: 60 };
+        assert_eq!(ground_with_taskbar(WORK, Some(bar)).bottom(), 1410);
+    }
+
+    #[test]
+    fn other_taskbars_leave_the_ground() {
+        // a normal taskbar is already outside the work area
+        let work = Rect { x: 0, y: 0, w: 2560, h: 1380 };
+        assert_eq!(ground_with_taskbar(work, Some(Rect { x: 0, y: 1380, w: 2560, h: 60 })), work);
+        // docked at the top or the side
+        assert_eq!(ground_with_taskbar(WORK, Some(Rect { x: 0, y: 0, w: 2560, h: 60 })), WORK);
+        assert_eq!(ground_with_taskbar(WORK, Some(Rect { x: 0, y: 0, w: 60, h: 1440 })), WORK);
+        // none found, or on another monitor
+        assert_eq!(ground_with_taskbar(WORK, None), WORK);
+        assert_eq!(ground_with_taskbar(WORK, Some(Rect { x: 2560, y: 1380, w: 1920, h: 60 })), WORK);
     }
 }

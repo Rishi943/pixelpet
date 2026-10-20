@@ -26,6 +26,11 @@ fn main() {
         println!("foreground class={class:?} title={title:?}");
         println!("window rect {:?}  monitor {:?}  work {:?}", r(wr), r(mi.rcMonitor), r(mi.rcWork));
         println!("pixelpet says fullscreen = {:?}", pixelpet::platform::native().fullscreen_app());
+        let tray: Vec<u16> = "Shell_TrayWnd".encode_utf16().chain([0]).collect();
+        let bar = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(tray.as_ptr(), std::ptr::null());
+        let mut br: RECT = std::mem::zeroed();
+        GetWindowRect(bar, &mut br);
+        println!("taskbar rect {:?}  pixelpet ground (work area) {:?}", r(br), pixelpet::platform::native().work_area());
     }
 }
 

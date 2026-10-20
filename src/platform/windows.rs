@@ -17,10 +17,42 @@ use windows_sys::Win32::UI::Shell::{
     SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect, SetCursorPos,
+    FindWindowW, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect, SetCursorPos,
 };
 
 pub struct Win;
+
+/// A named mutex held for the life of the process (`Local\<name>`, so one
+/// per signed-in user).
+pub struct Mutex(windows_sys::Win32::Foundation::HANDLE);
+
+impl Mutex {
+    pub fn claim(name: &str) -> Option<Mutex> {
+        use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+        use windows_sys::Win32::System::Threading::CreateMutexW;
+        let n = wide(&format!("Local\\{name}"));
+        unsafe {
+            let h = CreateMutexW(std::ptr::null(), 1, n.as_ptr());
+            if h == 0 {
+                return None;
+            }
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                CloseHandle(h);
+                return None;
+            }
+            Some(Mutex(h))
+        }
+    }
+}
+
+impl Drop for Mutex {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::System::Threading::ReleaseMutex(self.0);
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
@@ -50,7 +82,12 @@ impl Platform for Win {
             if GetMonitorInfoW(mon, &mut mi) == 0 {
                 return Rect { x: 0, y: 0, w: 1920, h: 1040 };
             }
-            rect_of(mi.rcWork)
+            // an auto-hide taskbar stays inside rcWork: ride on it when shown
+            let tray = wide("Shell_TrayWnd");
+            let bar = FindWindowW(tray.as_ptr(), std::ptr::null());
+            let mut br: RECT = std::mem::zeroed();
+            let bar = (bar != 0 && GetWindowRect(bar, &mut br) != 0).then(|| rect_of(br));
+            super::ground_with_taskbar(rect_of(mi.rcWork), bar)
         }
     }
 
@@ -192,6 +229,16 @@ mod tests {
     #[test]
     fn fullscreen_is_known() {
         assert!(Win.fullscreen_app().is_some());
+    }
+
+    #[test]
+    fn only_one_instance_holds_the_lock() {
+        let name = format!("PixelPet-test-{}", std::process::id());
+        let first = crate::platform::claim_single_instance(&name);
+        assert!(first.is_some(), "the first claim gets the lock");
+        assert!(crate::platform::claim_single_instance(&name).is_none(), "a second one is refused");
+        drop(first);
+        assert!(crate::platform::claim_single_instance(&name).is_some(), "free again once the first is gone");
     }
 
     #[test]
