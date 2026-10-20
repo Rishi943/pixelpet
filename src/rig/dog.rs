@@ -422,8 +422,9 @@ fn carry(b: &Body, t: f64, toy: Option<Toy>) -> Skel {
 fn eat(b: &Body, t: f64) -> Skel {
     let g = geom(b);
     let chew = (t * TAU / 0.5).sin();
-    let mut c = Drive::new(g.hip, add(g.sh, [0.0, -0.05]), add(g.sh, [0.36, -0.42 + 0.015 * chew]), rest_paws(&g));
-    c.head_rot = -1.05;
+    // muzzle forward and down to the ground, in front of the front paws
+    let mut c = Drive::new(g.hip, add(g.sh, [0.02, -0.10]), add(g.sh, [0.52, -0.40 + 0.015 * chew]), rest_paws(&g));
+    c.head_rot = -0.75;
     c.mouth = 0.6 * (PI * (t % 1.0)).sin();
     c.ear_back = 0.1;
     c.tail_angs = Some(hang_map(|a, i| a + 0.15 + (t * TAU).sin() * 0.06 * (i + 1.0) * 0.5));
@@ -461,8 +462,8 @@ fn tug(b: &Body, t: f64) -> Skel {
     let shake = (t * TAU * 3.0 / 0.9).sin();
     let rest = rest_paws(&g);
     let paws = Paws { nf: add(rest.nf, [0.14, 0.0]), ff: add(rest.ff, [0.12, 0.0]), nh: rest.nh, fh: rest.fh };
-    let mut c = Drive::new(add(g.hip, [-0.08, -0.12]), add(g.sh, [-0.02, -0.06]), add(head_rest(b, &g), [0.06, -0.22]), paws);
-    c.flex = [0.0, 0.0, 0.5, 0.5];
+    let mut c = Drive::new(add(g.hip, [-0.10, -0.22]), add(g.sh, [0.0, -0.08]), add(head_rest(b, &g), [0.10, -0.24]), paws);
+    c.flex = [0.0, 0.0, 0.9, 0.9];
     c.head_rot = -0.10 + 0.314 * shake;
     c.mouth = 0.15;
     c.ear_back = 0.35;
