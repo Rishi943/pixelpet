@@ -151,6 +151,7 @@ impl PetWindow {
             return Err("bad image size".into());
         }
         let hwnd = self.hwnd;
+        let resized = self.dib.as_ref().map_or(true, |d| d.w != img.w || d.h != img.h);
         let dib = self.dib(img.w, img.h)?;
         let dst = unsafe { std::slice::from_raw_parts_mut(dib.bits, img.w * img.h * 4) };
         for (d, s) in dst.chunks_exact_mut(4).zip(img.px.chunks_exact(4)) {
@@ -176,6 +177,14 @@ impl PetWindow {
         };
         if ok == 0 {
             return Err(format!("UpdateLayeredWindow failed: {}", std::io::Error::last_os_error()));
+        }
+        if resized {
+            // Something on the desktop can give the window a clipping region
+            // the size it was then (seen live: stuck at 207x246 after growing
+            // to L, so only the ear tips showed). Drop it on every resize.
+            unsafe {
+                windows_sys::Win32::Graphics::Gdi::SetWindowRgn(hwnd, 0, 0);
+            }
         }
         if !self.shown {
             self.show();

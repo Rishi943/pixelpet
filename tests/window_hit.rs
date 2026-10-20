@@ -1,6 +1,7 @@
-//! A real pet window must answer "client area" to the hit-test question
-//! for points on it, or Windows drops the clicks (seen on the desktop: the
-//! default handler answered HTNOWHERE for points inside the window).
+//! A real pet window must show all of itself and answer "client area" to
+//! the hit-test question for points on it, after any resize or move. (Seen
+//! on the desktop: a clipping region stuck at an old size cut the pet off at
+//! L and XL, and the default handler answered HTNOWHERE.)
 //! No test harness: winit wants the main thread.
 
 #[cfg(windows)]
@@ -33,11 +34,28 @@ fn main() {
             // the bottom edge as he does on the ground line
             let steps = [(120, 120, 400, 300), (207, 246, 400, sh - 243), (207, 300, 900, 200), (150, 180, sw / 2, sh - 177), (207, 246, sw / 3, sh - 243)];
             for (k, &(w, h, x0, y0)) in steps.iter().enumerate() {
+                if k == 1 {
+                    // something on the desktop sets a clipping region the
+                    // size of the window as it is (seen live: 207x246 at M,
+                    // still there after growing to L); set one the same way
+                    let (pw, ph) = (steps[0].0 as i32, steps[0].1 as i32);
+                    unsafe {
+                        use windows_sys::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
+                        SetWindowRgn(win.hwnd() as _, CreateRectRgn(0, 0, pw, ph), 0);
+                    }
+                }
                 let mut img = Rgba::new(w, h);
                 for p in img.px.chunks_mut(4) {
                     p.copy_from_slice(&[200, 120, 40, 255]);
                 }
                 win.present(&img, x0, y0, 255).expect("present");
+                // a clipping region left over from a smaller size cuts the
+                // pet off (only the ear tips showed at L and XL)
+                let mut rb: windows_sys::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
+                let kind = unsafe { windows_sys::Win32::Graphics::Gdi::GetWindowRgnBox(win.hwnd() as _, &mut rb) };
+                if kind != 0 && (rb.right - rb.left, rb.bottom - rb.top) != (w as i32, h as i32) {
+                    self.failures.push(format!("step {k}: region {}x{} on a {w}x{h} window", rb.right - rb.left, rb.bottom - rb.top));
+                }
                 for dy in (0..h as i32).step_by(10) {
                     for dx in (0..w as i32).step_by(10) {
                         let (x, y) = (x0 + dx, y0 + dy);
