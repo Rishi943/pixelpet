@@ -16,13 +16,13 @@ fn bubble_copy() {
     assert_eq!(b.lines(), "Pet | Play | Feed");
     assert_eq!(click(&mut b, "Play", 1), None);
     assert_eq!(b.page(), Page::Play);
-    assert_eq!(b.lines(), "Ball | Coconut | Tug-of-war | Back");
+    assert_eq!(b.lines(), "Ball | Coconut | Back");
     assert_eq!(click(&mut b, "Back", 1), None);
     assert_eq!(click(&mut b, "Feed", 1), None);
     assert_eq!(b.lines(), "Chicken | Bone | Kibble | Back");
     let mut b = Bubble::new(Pet::Rabbit);
     click(&mut b, "Play", 1);
-    assert_eq!(b.lines(), "Football | Tug-of-war | Back");
+    assert_eq!(b.lines(), "Football | Back");
     click(&mut b, "Back", 1);
     click(&mut b, "Feed", 1);
     assert_eq!(b.lines(), "Carrot | Coriander | Banana | Back");
@@ -39,9 +39,6 @@ fn bubble_choices() {
     let mut b = Bubble::new(Pet::Dog);
     click(&mut b, "Play", s);
     assert_eq!(click(&mut b, "Ball", s), Some(Choice::Fetch(Toy::Ball)));
-    let mut b = Bubble::new(Pet::Dog);
-    click(&mut b, "Play", s);
-    assert_eq!(click(&mut b, "Tug-of-war", s), Some(Choice::Tug));
     let mut b = Bubble::new(Pet::Dog);
     click(&mut b, "Feed", s);
     assert_eq!(click(&mut b, "Chicken", s), Some(Choice::Feed(Food::Chicken)));

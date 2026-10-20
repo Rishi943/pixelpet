@@ -5,7 +5,6 @@
 pub mod feed;
 pub mod fetch;
 pub mod pet;
-pub mod tug;
 pub mod wander;
 
 use crate::platform::Rect;
@@ -59,7 +58,7 @@ pub struct Inputs {
     /// How fast the cursor was moving upwards when the button was let go
     /// (px/s, over the last 100 ms); the app sets it with `Mouse::Up`.
     pub flick_up: f64,
-    /// The real cursor can be moved (tug pulls it); false on Wayland.
+    /// The real cursor can be moved (feeding pulls it); false on Wayland.
     pub can_warp: bool,
 }
 
@@ -68,7 +67,6 @@ pub struct Inputs {
 pub enum Choice {
     Pet,
     Fetch(Toy),
-    Tug,
     Feed(Food),
 }
 
@@ -96,21 +94,16 @@ pub struct FoodShow {
 pub struct Props {
     pub toy: Option<ToyShow>,
     pub food: Option<FoodShow>,
-    /// The rope's far end: the cursor.
-    pub rope_to: Option<(i32, i32)>,
     /// When each heart was floated (shown for 1.2 s).
     pub hearts: [Option<f64>; 6],
     /// When the crumbs started falling.
     pub crumbs: Option<f64>,
-    /// The pet is pulling the rope (it sags less).
-    pub taut: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Play {
     Pet { strokes: pet::Strokes, off_since: Option<f64> },
     Fetch { toy: Toy, st: fetch::State },
-    Tug { st: tug::State },
     Feed { food: Food, st: feed::State },
 }
 
@@ -139,7 +132,7 @@ pub struct Show {
     /// Pet, fetch, tug or feed is going on.
     pub playing: bool,
     pub props: Props,
-    /// Move the real cursor here this frame (tug).
+    /// Move the real cursor here this frame (feeding pulls the food in).
     pub warp: Option<(i32, i32)>,
 }
 
@@ -187,7 +180,6 @@ pub struct Brain {
     depth: f64,
     vp_x: f64,
     warp: Option<(i32, i32)>,
-    rng: wander::Rng,
     /// from the last update: px per rig unit, and the ground line
     last_u: f64,
     last_ground: f64,
@@ -228,7 +220,6 @@ impl Brain {
             depth: 0.0,
             vp_x: work.x as f64 + work.w as f64 / 2.0,
             warp: None,
-            rng: wander::Rng::new(seed ^ 0x7469_6775),
             last_u: 66.0,
             last_ground: work.bottom() as f64,
             play_input_at: now,
@@ -245,14 +236,7 @@ impl Brain {
     }
 
     /// A choice from the bubble. Closes the bubble and starts that play.
-    /// Food drops from just above the pet's head.
     pub fn choose(&mut self, c: Choice, now: f64) {
-        let from = (self.x.round() as i32, (self.last_ground - 1.6 * self.last_u).round() as i32);
-        self.choose_at(c, now, from)
-    }
-
-    /// `choose`, with the bubble at `from` (screen px): food drops from there.
-    pub fn choose_at(&mut self, c: Choice, now: f64, from: (i32, i32)) {
         self.bubble = false;
         self.bubble_off_since = None;
         self.hover_start = None;
@@ -266,14 +250,11 @@ impl Brain {
                 self.mode = Mode::Play(Play::Fetch { toy, st: fetch::State::Waiting { since: now, at: None } });
                 self.show_anim(Anim::Stand, now);
             }
-            Choice::Tug => {
-                self.mode = Mode::Play(Play::Tug { st: tug::State::new(now) });
-                self.show_anim(Anim::Tug, now);
-            }
             Choice::Feed(food) => {
-                let side = if from.0 as f64 >= self.x { 1.0 } else { -1.0 };
-                self.props.food = Some(feed::dropped(food, from, self.last_ground));
-                self.mode = Mode::Play(Play::Feed { food, st: feed::State::Falling { v: 0.0, side, landed_x: None } });
+                // in the hand; it follows the cursor from the next tick
+                let at = self.last_cursor.unwrap_or((self.x.round() as i32, (self.last_ground - 1.6 * self.last_u) as i32));
+                self.props.food = Some(feed::in_hand(food, at, self.last_ground));
+                self.mode = Mode::Play(Play::Feed { food, st: feed::State::Follow });
                 self.show_anim(Anim::Stand, now);
             }
         }
@@ -290,7 +271,6 @@ impl Brain {
     fn play(&mut self, p: Play, inp: &Inputs, now: f64, dt: f64, lo: f64, hi: f64) {
         match p {
             Play::Fetch { toy, st } => self.fetch(toy, st, inp, now, dt, lo, hi),
-            Play::Tug { st } => self.tug(st, inp, now, lo, hi),
             Play::Feed { food, st } => self.feed(food, st, inp, now, dt, lo, hi),
             Play::Pet { mut strokes, mut off_since } => {
                 if inp.over_pet {

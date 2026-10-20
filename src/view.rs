@@ -157,8 +157,6 @@ pub struct View {
     renders: usize,
     zzz_since: Option<f64>,
     image_gen: u64,
-    /// the mouth in the last image, image px
-    mouth: Option<(i32, i32)>,
 }
 
 impl View {
@@ -177,19 +175,12 @@ impl View {
             renders: 0,
             zzz_since: None,
             image_gen: 0,
-            mouth: None,
         }
     }
 
     /// The image last returned by `frame`.
     pub fn image(&self) -> &Rgba {
         &self.image
-    }
-
-    /// Where the mouth is in the last image `frame` returned (image px),
-    /// for the tug rope.
-    pub fn mouth(&self) -> Option<(i32, i32)> {
-        self.mouth
     }
 
     /// How many times the rig has rendered (a test hook for the cache).
@@ -283,11 +274,6 @@ impl View {
             self.image_gen += 1;
         }
         let z = zoom as i32;
-        if let Some(s) = &self.last_skel {
-            let (mx, my) = rig::mouth(self.pet, s, look);
-            let mx = if show.facing < 0 { frame.w as f64 - 1.0 - mx } else { mx };
-            self.mouth = Some(((mx * z as f64).round() as i32, margin as i32 + (my * z as f64).round() as i32));
-        }
         let ox = if show.facing < 0 { frame.w as i32 - frame.ox } else { frame.ox };
         let dx = -ox * z;
         let dy = -((frame.gy + 1) * z + margin as i32);

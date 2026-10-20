@@ -63,7 +63,6 @@ fn compose_covers_all_sprites() {
             Sprite { img: solid(10, 10, [255, 0, 0, 255]), x: 100, y: 100, part: Part::Pet },
             Sprite { img: solid(10, 10, [0, 0, 255, 255]), x: 300, y: 250, part: Part::Toy },
         ],
-        rope: None,
     };
     let (img, x, y) = s.compose();
     assert_eq!((img.w, img.h, x, y), (210, 160, 100, 100));
@@ -71,20 +70,6 @@ fn compose_covers_all_sprites() {
     let i = ((150 + 5) * img.w + 200 + 5) * 4;
     assert_eq!(&img.px[i..i + 4], &[0, 0, 255, 255]);
     assert_eq!(alpha(&img, 100, 50), 0, "between sprites is clear");
-}
-
-#[test]
-fn rope_far_away_stays_click_through() {
-    let s = Scene {
-        sprites: vec![Sprite { img: solid(60, 50, [200, 120, 40, 255]), x: 100, y: 960, part: Part::Pet }],
-        rope: Some(((150, 975), (1800, 200), 3, 30.0)),
-    };
-    let (img, x0, y0) = s.compose();
-    let (px, py) = (1800 - x0, 1000 - y0);
-    assert!((px as usize) < img.w && (py as usize) < img.h, "the point is inside the image");
-    assert_eq!(alpha(&img, px as usize, py as usize), 0);
-    assert_eq!(s.hit(1800, 1000, false), Hit::None);
-    assert!(img.px.chunks(4).filter(|p| p[3] > 0).count() > 60 * 50 + 100, "the rope is drawn");
 }
 
 #[test]
@@ -96,7 +81,6 @@ fn hit_prefers_the_top_sprite() {
             Sprite { img: solid(10, 10, [255, 255, 0, 255]), x: 0, y: 0, part: Part::Food },
             Sprite { img: solid(5, 5, [255, 0, 0, 255]), x: 100, y: 100, part: Part::Effect },
         ],
-        rope: None,
     };
     assert_eq!(s.hit(35, 35, false), Hit::Toy);
     assert_eq!(s.hit(15, 15, false), Hit::Pet);

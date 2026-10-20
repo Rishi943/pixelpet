@@ -1,8 +1,7 @@
-//! Props for play: food (eaten in three bites), hearts, crumbs, the rope.
+//! Props for play: food (eaten in three bites), hearts, crumbs.
 
 use pixelpet::rig::props;
 use pixelpet::rig::{Food, Frame, Pet};
-use pixelpet::window::Rgba;
 
 const FOODS: [Food; 6] = [Food::Chicken, Food::Bone, Food::Kibble, Food::Carrot, Food::Coriander, Food::Banana];
 
@@ -54,30 +53,4 @@ fn heart_is_red_and_small() {
     }
     let top = counts.into_iter().max_by_key(|(_, n)| *n).unwrap().0;
     assert!(top[0] > 150 && top[1] < 90, "most common colour {top:?}");
-}
-
-#[test]
-fn rope_is_on_the_grid() {
-    let mut img = Rgba::new(200, 100);
-    props::rope(&mut img, (10, 10), (190, 60), 3, 12.0);
-    let painted = |x: usize, y: usize| img.px[(y * img.w + x) * 4 + 3] > 0;
-    // only whole 3x3 blocks
-    for y in 0..99 {
-        for x in 0..198 {
-            if painted(x, y) {
-                let (bx, by) = (x / 3 * 3, y / 3 * 3);
-                for j in 0..3 {
-                    for i in 0..3 {
-                        assert!(painted(bx + i, by + j), "block at ({bx},{by}) is partial");
-                    }
-                }
-            }
-        }
-    }
-    assert!(painted(10, 10) && painted(190, 60), "both ends painted");
-    // the middle sags below the straight line (y = 35 at x = 100)
-    let ys: Vec<usize> = (0..100).filter(|&y| painted(100, y)).collect();
-    assert!(!ys.is_empty());
-    let mid = ys.iter().sum::<usize>() as f64 / ys.len() as f64;
-    assert!((35.0 + 9.0..=35.0 + 15.0).contains(&mid), "middle at y {mid}");
 }

@@ -734,226 +734,77 @@ fn waiting_toy_drops() {
     assert!(sim.last.playing);
 }
 
-// ---------------------------------------------------------------- M2: tug-of-war
+// ---------------------------------------------------------------- M2: feed
 
-// The rope has a fixed length (the user: "he moves if i pull the rope, not
-// the rope getting longer, and he needs to move back to tug it towards him,
-// not the rope getting smaller").
+// Fed from the hand (the user: "would love to feed it directly instead of
+// just dropping it ... eating and slowly pulling the cursor towards it as it
+// eats through a carrot the cursor is holding").
 
-/// Tug with the cursor `units` to the pet's right, level with the mouth.
-fn tug_start(pet: Pet, units: f64) -> Sim {
+/// Choose `food` with the cursor `units` to the pet's right at mouth height.
+fn feed_start(pet: Pet, food: rig::Food, units: f64) -> Sim {
     let mut sim = Sim::new(pet);
     sim.run(1.0, |_, _| {});
-    let x = sim.last.x;
-    let (_, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
-    sim.cursor = Some(((x + (units + 0.5) * sim.unit_px) as i32, my as i32));
-    sim.brain.choose(Choice::Tug, sim.now);
+    let (_, my) = sim.brain.eat_mouth(sim.unit_px, sim.work);
+    sim.cursor = Some(((sim.last.x + units * sim.unit_px) as i32, my as i32 - (0.6 * sim.unit_px) as i32));
+    sim.brain.choose(Choice::Feed(food), sim.now);
     sim.step();
     sim
 }
 
-fn rope_len(sim: &Sim) -> f64 {
-    let (mx, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
-    let (cx, cy) = sim.cursor.unwrap();
-    ((cx as f64 - mx).powi(2) + (cy as f64 - my).powi(2)).sqrt()
+fn food_at_cursor(sim: &Sim) -> bool {
+    let (Some(f), Some((cx, cy))) = (sim.last.props.food, sim.cursor) else { return false };
+    let ground = sim.work.bottom() as f64;
+    (f.x - cx as f64).abs() < 1.0 && (f.lift - (ground - cy as f64)).abs() < 1.0
 }
 
-/// Step until the next burst has finished; the pet's x and cursor x before and after.
-fn one_burst(sim: &mut Sim) -> ((f64, i32), (f64, i32)) {
-    let before = (sim.last.x, sim.cursor.unwrap().0);
-    let mut seen = false;
-    for _ in 0..(2.5 / DT) as usize {
-        sim.step();
-        if sim.last.props.taut {
-            seen = true;
-        } else if seen {
-            break;
-        }
-    }
-    assert!(seen, "no burst within 2.5 s");
-    (before, (sim.last.x, sim.cursor.unwrap().0))
-}
-
-#[test]
-fn tug_he_steps_back_and_the_cursor_comes_too() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    assert!(sim.last.playing && sim.last.anim == Anim::Tug);
-    assert_eq!(sim.last.props.rope_to, sim.cursor, "the rope runs to the cursor");
-    let len = rope_len(&sim);
-    let ((x0, c0), (x1, c1)) = one_burst(&mut sim);
-    let u = sim.unit_px;
-    assert!((x0 - x1 - 0.6 * u).abs() <= 2.0, "stepped back {} px, want {}", x0 - x1, 0.6 * u);
-    assert!(((c0 - c1) as f64 - 0.6 * u).abs() <= 2.0, "the cursor came {} px", c0 - c1);
-    assert!((rope_len(&sim) - len).abs() <= 2.0, "the rope changed length: {len} -> {}", rope_len(&sim));
-}
-
-#[test]
-fn tug_pulling_drags_the_pet() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    let len = rope_len(&sim);
-    let x0 = sim.last.x;
-    let pull = (0.8 * sim.unit_px) as i32;
-    let (cx, cy) = sim.cursor.unwrap();
-    sim.cursor = Some((cx + pull, cy));
-    sim.step();
-    assert!((sim.last.x - x0 - pull as f64).abs() <= 2.0, "dragged {} px, pulled {pull}", sim.last.x - x0);
-    assert!((rope_len(&sim) - len).abs() <= 2.0, "the rope stretched");
-    assert_eq!(sim.last.anim, Anim::Tug, "braced while dragged");
-}
-
-#[test]
-fn tug_user_wins() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    let (x0, u) = (sim.last.x, sim.unit_px);
-    let mut anims = vec![];
-    // pull steadily, a unit every half second (he tugs back now and then)
-    for _ in 0..90 {
-        let (cx, cy) = sim.cursor.unwrap();
-        sim.cursor = Some((cx + (u / 15.0) as i32, cy));
-        anims.push(sim.step().anim);
-        if !sim.last.playing {
-            break;
-        }
-    }
-    assert!(anims.contains(&Anim::Hop), "no happy jump: dragged {} units", (sim.last.x - x0) / u);
-    assert_eq!(sim.last.props.rope_to, None, "lets go of the rope");
-    sim.run(1.5, |_, _| {});
-    assert!(!sim.last.playing);
-}
-
-#[test]
-fn tug_pet_wins_by_pulling_back() {
-    let mut sim = tug_start(Pet::Rabbit, 3.0);
-    let (x0, u) = (sim.last.x, sim.unit_px);
-    let mut won = None;
-    for _ in 0..(15.0 / DT) as usize {
-        sim.step();
-        if sim.last.props.rope_to.is_none() {
-            won = Some(sim.now);
-            break;
-        }
-    }
-    assert!(won.is_some(), "never won");
-    assert!(x0 - sim.last.x >= 2.5 * u - 2.0, "won having backed only {} units", (x0 - sim.last.x) / u);
-    sim.run(1.1, |_, sh| assert_eq!(sh.anim, Anim::Tug, "victory shake"));
-    sim.run(0.3, |_, _| {});
-    assert!(!sim.last.playing);
-}
-
-#[test]
-fn tug_cursor_onto_the_pet_is_giving_up() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    sim.over_pet = true;
-    sim.step();
-    assert_eq!(sim.last.props.rope_to, None);
-    assert_eq!(sim.last.anim, Anim::Tug);
-}
-
-#[test]
-fn tug_without_warp() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    sim.can_warp = false;
-    sim.warps.clear();
-    let (x0, u) = (sim.last.x, sim.unit_px);
-    one_burst(&mut sim);
-    assert!(sim.warps.is_empty(), "asked to move a cursor that can't be moved");
-    assert!(sim.last.x < x0 - 0.3 * u, "he still steps back (the rope stretches)");
-    // the user still wins by dragging him
-    let mut hop = false;
-    for _ in 0..90 {
-        let (cx, cy) = sim.cursor.unwrap();
-        sim.cursor = Some((cx + (u / 15.0) as i32, cy));
-        hop |= sim.step().anim == Anim::Hop;
-    }
-    assert!(hop, "the user still wins by dragging");
-}
-
-#[test]
-fn tug_stalemate_at_the_edge_times_out() {
-    // backed against the left edge he can't pull further: nobody wins, and
-    // 20 s with no input from the user ends it
-    let mut sim = Sim::new(Pet::Dog);
-    sim.brain.place(-5000.0);
-    sim.run(0.5, |_, _| {});
-    let (_, my) = sim.brain.tug_mouth(sim.unit_px, sim.work);
-    sim.cursor = Some(((sim.last.x + 3.5 * sim.unit_px) as i32, my as i32));
-    sim.brain.choose(Choice::Tug, sim.now);
-    let mut hop = false;
-    sim.run(19.5, |_, sh| hop |= sh.anim == Anim::Hop);
-    assert!(sim.last.playing, "ended before 20 s");
-    sim.run(1.0, |_, sh| hop |= sh.anim == Anim::Hop);
-    assert!(!sim.last.playing, "a stalemate never ended");
-    assert!(!hop, "nobody won");
-    assert!(sim.in_bounds(sim.last.x));
-}
-
-#[test]
-fn cancel_mid_tug() {
-    let mut sim = tug_start(Pet::Dog, 3.0);
-    for _ in 0..(2.5 / DT) as usize {
-        sim.step();
-        if sim.last.warp.is_some() {
-            break;
-        }
-    }
-    assert!(sim.last.warp.is_some(), "no burst to cancel");
-    let n = sim.warps.len();
-    sim.cancel = true;
-    let sh = sim.step();
-    assert!(!sh.playing && sh.warp.is_none() && sh.props.rope_to.is_none());
-    sim.run(3.0, |_, _| {});
-    assert_eq!(sim.warps.len(), n, "moved the cursor after the cancel");
-}
-
-// ---------------------------------------------------------------- M2: feed
-
-/// Feed `food` from a bubble at `from`; returns (anims in order, bites seen in
-/// order, lifts while falling) until play ends or 20 s pass.
-fn feed_run(sim: &mut Sim, food: rig::Food, from: (i32, i32)) -> (Vec<Anim>, Vec<u8>, Vec<f64>) {
-    sim.brain.choose_at(Choice::Feed(food), sim.now, from);
-    let (mut anims, mut bites, mut lifts) = (vec![], vec![], vec![]);
-    for _ in 0..(20.0 / DT) as usize {
+/// Run until play ends; anims in order, bites in order, distances from the
+/// food to the eating mouth while eating.
+fn feed_run(sim: &mut Sim) -> (Vec<Anim>, Vec<u8>, Vec<f64>) {
+    let (mut anims, mut bites, mut dists) = (vec![], vec![], vec![]);
+    for _ in 0..(30.0 / DT) as usize {
         let sh = sim.step();
         if anims.last() != Some(&sh.anim) {
             anims.push(sh.anim);
         }
         if let Some(f) = sh.props.food {
-            assert_eq!(f.food, food);
+            assert!(food_at_cursor(sim), "the food left the hand: {f:?} cursor {:?}", sim.cursor);
             if bites.last() != Some(&f.bites) {
                 bites.push(f.bites);
             }
-            if f.lift > 0.0 || lifts.is_empty() {
-                lifts.push(f.lift);
+            if sh.anim == Anim::Eat {
+                let (mx, my) = sim.brain.eat_mouth(sim.unit_px, sim.work);
+                let (cx, cy) = sim.cursor.unwrap();
+                dists.push(((cx as f64 - mx).powi(2) + (cy as f64 - my).powi(2)).sqrt());
             }
         }
         if !sh.playing {
             break;
         }
     }
-    (anims, bites, lifts)
+    (anims, bites, dists)
 }
 
 #[test]
-fn feed_alex_chicken() {
-    let mut sim = Sim::new(Pet::Dog);
-    sim.run(1.0, |_, _| {});
-    let bubble = (sim.last.x as i32 + 30, 850);
-    let (anims, bites, lifts) = feed_run(&mut sim, rig::Food::Chicken, bubble);
-    assert!(lifts.len() > 3 && lifts.windows(2).all(|w| w[1] <= w[0]), "the food falls: {lifts:?}");
+fn the_bun_eats_from_the_hand() {
+    let mut sim = feed_start(Pet::Rabbit, rig::Food::Carrot, 4.0);
+    assert!(sim.last.playing && food_at_cursor(&sim), "the carrot is in the hand");
+    let (anims, bites, dists) = feed_run(&mut sim);
     let eat = anims.iter().position(|a| *a == Anim::Eat).expect("never ate");
-    assert!(anims[..eat].contains(&Anim::Walk), "walked over first: {anims:?}");
-    assert_eq!(anims.get(eat + 1), Some(&Anim::Wag), "then wags: {anims:?}");
+    assert!(anims[..eat].contains(&Anim::Walk), "came over first: {anims:?}");
     assert_eq!(bites, [0, 1, 2, 3], "three bites");
+    // it pulls the cursor (and the carrot) in to its mouth as it eats
+    assert!(dists.first().unwrap() > dists.last().unwrap(), "not pulled in: {dists:?}");
+    assert!(*dists.last().unwrap() <= 0.4 * sim.unit_px, "never reached the mouth");
+    assert!(!sim.warps.is_empty(), "the cursor was never moved");
+    assert_eq!(anims.get(eat + 1), Some(&Anim::Hop), "a binky after: {anims:?}");
     assert!(!sim.last.playing && sim.last.props.food.is_none());
 }
 
 #[test]
-fn eating_takes_its_time() {
-    let mut sim = Sim::new(Pet::Dog);
-    sim.run(1.0, |_, _| {});
-    sim.brain.choose_at(Choice::Feed(rig::Food::Bone), sim.now, (sim.last.x as i32, 850));
+fn alex_eats_from_the_hand_then_wags() {
+    let mut sim = feed_start(Pet::Dog, rig::Food::Chicken, 3.0);
     let (mut eat_t, mut wag_t, mut crumbs) = (0.0, 0.0, false);
-    for _ in 0..(20.0 / DT) as usize {
+    for _ in 0..(30.0 / DT) as usize {
         let sh = sim.step();
         match sh.anim {
             Anim::Eat => eat_t += DT,
@@ -965,51 +816,74 @@ fn eating_takes_its_time() {
             break;
         }
     }
-    assert!((eat_t - 2.4).abs() < 0.1, "ate for {eat_t} s");
+    assert!(eat_t >= 2.4 - 0.05 && eat_t < 4.0, "ate for {eat_t} s");
     assert!((wag_t - 1.6).abs() < 0.1, "wagged for {wag_t} s");
     assert!(crumbs, "no crumbs");
 }
 
 #[test]
-fn feed_bun_carrot() {
-    let mut sim = Sim::new(Pet::Rabbit);
-    sim.run(1.0, |_, _| {});
-    let from = (sim.last.x as i32 - 30, 850);
-    let (anims, bites, _) = feed_run(&mut sim, rig::Food::Carrot, from);
-    let eat = anims.iter().position(|a| *a == Anim::Eat).expect("never ate");
-    assert_eq!(anims.get(eat + 1), Some(&Anim::Hop), "a binky after: {anims:?}");
-    assert_eq!(bites, [0, 1, 2, 3]);
-    assert!(!sim.last.playing);
+fn pulling_the_food_away_stops_the_meal() {
+    let mut sim = feed_start(Pet::Rabbit, rig::Food::Banana, 3.0);
+    for _ in 0..(10.0 / DT) as usize {
+        if sim.step().anim == Anim::Eat {
+            break;
+        }
+    }
+    assert_eq!(sim.last.anim, Anim::Eat);
+    sim.run(0.7, |_, _| {});
+    let bites = sim.last.props.food.unwrap().bites;
+    // snatch it away and hold it there
+    let far = ((sim.last.x + 6.0 * sim.unit_px) as i32, 700);
+    let mut walked = false;
+    for _ in 0..20 {
+        sim.cursor = Some(far);
+        let sh = sim.step();
+        walked |= sh.anim == Anim::Walk;
+        assert_eq!(sh.props.food.unwrap().bites, bites, "kept eating it from afar");
+    }
+    assert!(walked, "didn't follow the food");
+    assert!(sim.last.playing);
 }
 
 #[test]
-fn food_lands_on_the_ground_in_reach() {
-    let mut sim = Sim::new(Pet::Dog);
-    // walk the pet to the right edge
-    sim.brain.place(5000.0);
-    sim.run(0.5, |_, _| {});
-    let (lo, hi) = sim.bounds();
-    sim.brain.choose_at(Choice::Feed(rig::Food::Kibble), sim.now, (WORK.w - 5, 850));
-    let mut ate = false;
+fn fed_by_hand_without_warp() {
+    let mut sim = feed_start(Pet::Rabbit, rig::Food::Coriander, 3.0);
+    sim.can_warp = false;
+    // the user holds it right at the mouth
+    let mut ate = 0.0;
     for _ in 0..(20.0 / DT) as usize {
+        let (mx, my) = sim.brain.eat_mouth(sim.unit_px, sim.work);
+        sim.cursor = Some((mx as i32, my as i32));
         let sh = sim.step();
-        if let Some(f) = sh.props.food {
-            assert!(f.x >= lo - 1e-6 && f.x <= hi + 1e-6, "food at {} off the ground {lo}..{hi}", f.x);
+        if sh.anim == Anim::Eat {
+            ate += DT;
         }
-        ate |= sh.anim == Anim::Eat;
-        assert!(sim.in_bounds(sh.x));
         if !sh.playing {
             break;
         }
     }
-    assert!(ate, "couldn't reach it");
+    assert!(sim.warps.is_empty(), "moved a cursor that can't be moved");
+    assert!(ate >= 2.3, "ate for {ate}");
+    assert!(!sim.last.playing);
+}
+
+#[test]
+fn food_out_of_reach_stays_in_the_hand() {
+    // held high above the pet: it never gets eaten, and nothing panics
+    let mut sim = feed_start(Pet::Dog, rig::Food::Bone, 0.0);
+    let x = sim.last.x as i32;
+    for _ in 0..(5.0 / DT) as usize {
+        sim.cursor = Some((x, 100));
+        let sh = sim.step();
+        assert_ne!(sh.anim, Anim::Eat, "ate it from the top of the screen");
+        assert!(sim.in_bounds(sh.x));
+    }
+    assert!(sim.last.playing && food_at_cursor(&sim));
 }
 
 #[test]
 fn cancel_mid_meal() {
-    let mut sim = Sim::new(Pet::Dog);
-    sim.run(1.0, |_, _| {});
-    sim.brain.choose_at(Choice::Feed(rig::Food::Chicken), sim.now, (sim.last.x as i32, 850));
+    let mut sim = feed_start(Pet::Dog, rig::Food::Chicken, 3.0);
     for _ in 0..(10.0 / DT) as usize {
         if sim.step().anim == Anim::Eat {
             break;
@@ -1018,27 +892,7 @@ fn cancel_mid_meal() {
     assert_eq!(sim.last.anim, Anim::Eat);
     sim.cancel = true;
     let sh = sim.step();
-    assert!(!sh.playing && sh.props.food.is_none() && sh.props.crumbs.is_none());
-}
-
-#[test]
-fn tug_chosen_from_the_bubble_is_not_lost_at_once() {
-    // chosen from the bubble right over the pet: the cursor still counts as
-    // on the pet (hover is sticky there); that must not hand the pet the win
-    let mut sim = Sim::new(Pet::Dog);
-    sim.run(1.0, |_, _| {});
-    sim.cursor = Some((sim.last.x as i32, 940));
-    sim.over_pet = true;
-    sim.brain.choose(Choice::Tug, sim.now);
-    sim.run(1.0, |_, sh| assert!(sh.props.rope_to.is_some(), "the rope went at once"));
-    assert!(sim.last.playing);
-    // once the cursor has left the pet, coming back onto it is a loss
-    sim.over_pet = false;
-    sim.cursor = Some(((sim.last.x + 3.0 * sim.unit_px) as i32, 1000));
-    sim.run(0.3, |_, _| {});
-    sim.over_pet = true;
-    sim.step();
-    assert_eq!(sim.last.props.rope_to, None, "dragged onto the pet: the pet wins");
+    assert!(!sh.playing && sh.props.food.is_none() && sh.props.crumbs.is_none() && sh.warp.is_none());
 }
 
 #[test]

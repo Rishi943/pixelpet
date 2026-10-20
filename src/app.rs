@@ -252,7 +252,7 @@ impl App {
         self.last_show = Some(show);
         if let Some((x, y)) = show.warp {
             if !self.platform.warp_cursor(x, y) {
-                self.can_warp = false; // the rope stretches instead
+                self.can_warp = false; // the user brings the food in instead
             }
         }
         self.present(&show, now, zoom, work);
@@ -340,14 +340,7 @@ impl App {
                 }
             }
         }
-        let rope = match (show.props.rope_to, self.view.mouth()) {
-            (Some(to), Some((mx, my))) => {
-                let sag = if show.props.taut { 0.2 } else { 0.4 } * u;
-                Some(((left + mx, top + my), to, zoom, sag))
-            }
-            _ => None,
-        };
-        let scene = Scene { sprites, rope };
+        let scene = Scene { sprites };
         let (img, sx, sy) = scene.compose();
         if let Err(e) = win.present(&img, sx, sy, opacity) {
             eprintln!("present failed: {e}");
@@ -423,9 +416,7 @@ impl App {
         let scale = self.settings.size.zoom();
         match self.bubble.click(x, y, scale) {
             Some(choice) => {
-                // food drops from the bubble's tail
-                let from = (b.left + b.w / 2, b.top + b.h);
-                self.brain.choose_at(choice, self.now(), from);
+                self.brain.choose(choice, self.now());
                 self.bubble.reset();
                 self.bubble_open = None;
             }

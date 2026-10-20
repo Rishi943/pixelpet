@@ -1,10 +1,9 @@
-//! Props for play: food, hearts, crumbs and the tug rope. Food and hearts
+//! Props for play: food, hearts and crumbs. Food and hearts
 //! are hand-drawn pixel maps in the pets' style (1 px dark outline, a few
 //! tones); one char per art pixel. Frames have their ground point at the
 //! bottom centre, like the pet's.
 
 use super::{Frame, Pet};
-use crate::window::Rgba;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Food {
@@ -195,43 +194,4 @@ pub fn heart() -> Frame {
         "....o....",
     ];
     draw(ROWS, &[('1', 0x9E1E34), ('2', 0xD9364A), ('3', 0xF59AA6)], usize::MAX)
-}
-
-const ROPE: [u32; 2] = [0xC8A060, 0x9C7A40];
-
-/// Draw the tug rope from `from` to `to` (image px), one art pixel thick
-/// (`zoom` px blocks on the image's art grid), two tones twisting along it,
-/// its middle sagging `sag` px below the straight line.
-pub fn rope(img: &mut Rgba, from: (i32, i32), to: (i32, i32), zoom: u32, sag: f64) {
-    let z = zoom.max(1) as i32;
-    let (x0, y0) = (from.0 as f64, from.1 as f64);
-    let (x2, y2) = (to.0 as f64, to.1 as f64);
-    // quadratic curve whose middle is `sag` below the chord's middle
-    let (cx, cy) = ((x0 + x2) / 2.0, (y0 + y2) / 2.0 + 2.0 * sag);
-    let steps = (((x2 - x0).abs() + (y2 - y0).abs()) / z as f64 * 2.0).ceil().max(1.0) as usize;
-    let mut last = None;
-    let mut n = 0usize;
-    for i in 0..=steps {
-        let t = i as f64 / steps as f64;
-        let u = 1.0 - t;
-        let x = u * u * x0 + 2.0 * u * t * cx + t * t * x2;
-        let y = u * u * y0 + 2.0 * u * t * cy + t * t * y2;
-        let b = ((x as i32).div_euclid(z), (y as i32).div_euclid(z));
-        if last == Some(b) {
-            continue;
-        }
-        last = Some(b);
-        n += 1;
-        let c = rgba(ROPE[(n / 2) % 2]);
-        let (bx, by) = (b.0 * z, b.1 * z);
-        if bx < 0 || by < 0 || bx + z > img.w as i32 || by + z > img.h as i32 {
-            continue;
-        }
-        for yy in by..by + z {
-            for xx in bx..bx + z {
-                let d = (yy as usize * img.w + xx as usize) * 4;
-                img.px[d..d + 4].copy_from_slice(&c);
-            }
-        }
-    }
 }

@@ -58,12 +58,10 @@ impl Bubble {
             (Page::Play, Pet::Dog) => vec![
                 ("Ball", Cell::Pick(Choice::Fetch(Toy::Ball))),
                 ("Coconut", Cell::Pick(Choice::Fetch(Toy::Coconut))),
-                ("Tug-of-war", Cell::Pick(Choice::Tug)),
                 ("Back", Cell::Go(Page::Top)),
             ],
             (Page::Play, Pet::Rabbit) => vec![
                 ("Football", Cell::Pick(Choice::Fetch(Toy::Football))),
-                ("Tug-of-war", Cell::Pick(Choice::Tug)),
                 ("Back", Cell::Go(Page::Top)),
             ],
             (Page::Feed, pet) => {
