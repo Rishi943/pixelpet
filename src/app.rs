@@ -40,8 +40,6 @@ pub struct App {
     exe: PathBuf,
     start: Instant,
     exit_after: Option<f64>,
-    /// PIXELPET_LOG=<file>: append input events and what the brain made of them
-    log: Option<std::fs::File>,
     pin: Option<Anim>,
     win: Option<PetWindow>,
     menu: Option<MenuOpen>,
@@ -58,11 +56,10 @@ pub struct App {
     placed: Option<(i32, i32)>,
     last_x: f64,
     hidden: bool,
-    /// whether the cursor was on the pet last tick (hover stickiness, log)
-    log_over: bool,
+    /// whether the cursor was on the pet last tick (hover stickiness)
+    was_over: bool,
     /// PIXELPET_SCRIPT: `t:action;...` dev actions replayed at t seconds
     script: Vec<(f64, String)>,
-    last_beat: f64,
     next_tick: Instant,
     /// PIXELPET_OPEN_MENU: open the menu (without focus) once the pet is shown
     open_menu_at_start: bool,
@@ -97,7 +94,6 @@ impl App {
             exe,
             start: Instant::now(),
             exit_after,
-            log: std::env::var("PIXELPET_LOG").ok().and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p.trim()).ok()),
             pin,
             win: None,
             menu: None,
@@ -112,8 +108,7 @@ impl App {
             placed: None,
             last_x: 0.0,
             hidden: true,
-            log_over: false,
-            last_beat: 0.0,
+            was_over: false,
             script: std::env::var("PIXELPET_SCRIPT")
                 .map(|v| {
                     v.split(';')
@@ -134,7 +129,7 @@ impl App {
     /// Whether the cursor is over an opaque pixel of the pet's image.
     fn over_pet(&self, cursor: Option<(i32, i32)>) -> bool {
         let (Some(c), Some(at), false) = (cursor, self.placed, self.hidden) else { return false };
-        crate::view::over_image(self.view.image(), at, c, self.log_over)
+        crate::view::over_image(self.view.image(), at, c, self.was_over)
     }
 
     fn tick(&mut self, el: &ActiveEventLoop) {
@@ -151,14 +146,8 @@ impl App {
         let cursor = self.platform.cursor_pos();
         let work = self.platform.work_area();
         self.menu_tick(now, cursor);
-        if self.log.is_some() && now - self.last_beat >= 1.0 {
-            self.last_beat = now;
-            let line = format!("{now:.3} beat placed={:?} hidden={} zoom={} menu={:?}", self.placed, self.hidden, self.settings.size.zoom(), self.menu.as_ref().map(|m| (m.left, m.top, m.scale)));
-            self.log(&line);
-        }
         while self.script.first().is_some_and(|(t, _)| now >= *t) {
             let (_, a) = self.script.remove(0);
-            self.log(&format!("{now:.3} script {a}"));
             match a.as_str() {
                 "menu" => self.open_menu(el, false),
                 "menu-focus" => self.open_menu(el, true),
@@ -189,15 +178,7 @@ impl App {
             fullscreen: self.fullscreen,
         };
         let show = self.brain.update(&inp, &self.settings);
-        let over_changed = inp.over_pet != self.log_over;
-        self.log_over = inp.over_pet;
-        if inp.mouse != Mouse::None || over_changed {
-            let line = format!(
-                "{now:.3} tick mouse={:?} over_pet={} cursor={:?} placed={:?} -> anim={:?} x={:.0} lift={:.0} visible={}",
-                inp.mouse, inp.over_pet, cursor, self.placed, show.anim, show.x, show.lift, show.visible
-            );
-            self.log(&line);
-        }
+        self.was_over = inp.over_pet;
         self.last_x = show.x;
         self.present(&show, now, zoom, work.bottom());
         if self.open_menu_at_start && self.placed.is_some() {
@@ -369,13 +350,6 @@ impl App {
         self.draw_menu();
     }
 
-    fn log(&mut self, line: &str) {
-        if let Some(f) = self.log.as_mut() {
-            use std::io::Write;
-            let _ = writeln!(f, "{line}");
-        }
-    }
-
     fn is_menu(&self, id: WindowId) -> bool {
         self.menu.as_ref().is_some_and(|m| m.win.id() == id)
     }
@@ -402,11 +376,6 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
-        if let WindowEvent::MouseInput { state, button, .. } = &ev {
-            let which = if self.is_menu(id) { "menu" } else { "pet" };
-            let line = format!("{:.3} event {which} {button:?} {state:?} cursor={:?}", self.now(), self.platform.cursor_pos());
-            self.log(&line);
-        }
         if self.is_menu(id) {
             match ev {
                 WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.menu_click(el),
