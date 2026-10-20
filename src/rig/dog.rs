@@ -299,8 +299,27 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Tilt => 4.0,
         Anim::Hop => 1.0,
         Anim::Sleep => 9.6,
+        Anim::Run => RUN_PERIOD,
+        Anim::Carry => CARRY_PERIOD,
+        Anim::Eat => 1.0,
+        Anim::Wag => 2.4,
+        Anim::Lean => 3.0,
+        Anim::Tug => 0.9,
+        Anim::Stretch => 1.5,
+        // not dog anims: the poses they fall back to
+        Anim::Flop => 9.6,
+        Anim::Nudge => 0.9,
     }
 }
+
+const RUN_PERIOD: f64 = 0.42;
+const RUN_DUTY: f64 = 0.38;
+const CARRY_PERIOD: f64 = 0.5;
+const CARRY_DUTY: f64 = 0.5;
+/// Run and carry speeds as multiples of the walk; their strides are sized
+/// from these so the paws don't slide.
+pub const RUN_SPEEDUP: f64 = 4.0;
+pub const CARRY_SPEEDUP: f64 = 2.5;
 
 /// Units per second while walking, with no foot slide.
 pub fn walk_speed(b: &Body) -> f64 {
@@ -312,11 +331,173 @@ pub fn pose(anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
     match anim {
         Anim::Stand => stand(&b, t, toy),
         Anim::Walk => walk(&b, t, toy),
-        Anim::Sit => sit_skel(&b, t, toy, false),
-        Anim::Tilt => sit_skel(&b, t, toy, true),
+        Anim::Sit => sit_skel(&b, t, toy, false, 0.0),
+        Anim::Tilt => sit_skel(&b, t, toy, true, 0.0),
         Anim::Hop => hop(&b, t, toy),
-        Anim::Sleep => sleep(&b, t),
+        Anim::Sleep | Anim::Flop => sleep(&b, t),
+        Anim::Run => run(&b, t, toy),
+        Anim::Carry => carry(&b, t, toy),
+        Anim::Eat => eat(&b, t),
+        Anim::Wag => wag(&b, t),
+        Anim::Lean => lean(&b, t),
+        Anim::Tug => tug(&b, t),
+        Anim::Stretch => stretch(&b, t),
+        Anim::Nudge => walk(&b, t, toy),
     }
+}
+
+/// Where a rope or food meets the mouth, in rig units.
+pub fn mouth(s: &Skel, b: &Body) -> P {
+    let hs = b.head * if s.head_front { 1.15 } else { 1.0 };
+    if s.head_front {
+        add(s.head, rot(mul([0.0, -0.16], hs), s.tilt))
+    } else {
+        add(s.head, rot(mul([0.06 + 0.18 * b.muzzle, -0.10], hs), s.head_rot))
+    }
+}
+
+/// Paw targets and flexes for a gait: each leg's phase offset (nf, ff, nh,
+/// fh), the share of the loop it is on the ground, stride and lift.
+fn gait(rest: Paws, p: f64, offs: [f64; 4], duty: f64, stride: f64, lift: f64) -> (Paws, [f64; 4]) {
+    let rs = [rest.nf, rest.ff, rest.nh, rest.fh];
+    let mut paws = [[0.0; 2]; 4];
+    let mut flex = [0.0; 4];
+    for k in 0..4 {
+        let ph = (p + offs[k]).rem_euclid(1.0);
+        let (dx, dy, f) = if ph < duty {
+            (stride * (0.5 - ph / duty), 0.0, 0.0)
+        } else {
+            let s = (ph - duty) / (1.0 - duty);
+            (stride * (-0.5 + s), lift * (PI * s).sin(), (PI * s).sin())
+        };
+        paws[k] = add(rs[k], [dx, dy]);
+        flex[k] = f;
+    }
+    (Paws { nf: paws[0], ff: paws[1], nh: paws[2], fh: paws[3] }, flex)
+}
+
+/// 0 to 1 by `a`, held, back to 0 from `b` to `c` (smoothstep edges).
+fn ramp(t: f64, a: f64, b: f64, c: f64) -> f64 {
+    let sm = |x: f64| {
+        let x = clamp(x, 0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    if t < a {
+        sm(t / a)
+    } else if t < b {
+        1.0
+    } else {
+        1.0 - sm((t - b) / (c - b))
+    }
+}
+
+/// Fetch: a bounding gallop, front pair then hind pair, ears back, tail out.
+fn run(b: &Body, t: f64, toy: Option<Toy>) -> Skel {
+    let g = geom(b);
+    let p = (t / RUN_PERIOD) % 1.0;
+    let stride = RUN_SPEEDUP * walk_speed(b) * RUN_DUTY * RUN_PERIOD;
+    let (paws, flex) = gait(rest_paws(&g), p, [0.0, 0.08, 0.5, 0.58], RUN_DUTY, stride, 0.16 * b.leg_len);
+    // the spine gathers and stretches once a stride
+    let w = (p * TAU).sin();
+    let bob = 0.03 * (p * TAU * 2.0).cos();
+    let mut c = Drive::new(
+        add(g.hip, [-0.03 * w, bob + 0.02 * w]),
+        add(g.sh, [0.03 * w, bob - 0.02 * w]),
+        add(head_rest(b, &g), [0.10 + 0.03 * w, -0.10 + bob]),
+        paws,
+    );
+    c.flex = flex;
+    c.head_rot = -0.10;
+    c.mouth = if toy.is_some() { 0.45 } else { 0.5 };
+    c.tongue = if toy.is_some() { 0.0 } else { 0.9 };
+    c.ear_back = 0.6;
+    c.tail_angs = Some(hang_map(|_, i| -2.85 - 0.06 * i + 0.10 * (p * TAU + i).sin()));
+    c.toy = toy;
+    build(b, &g, c)
+}
+
+/// Bringing the toy back: a quick trot, head up, mouth closed on the toy.
+fn carry(b: &Body, t: f64, toy: Option<Toy>) -> Skel {
+    let g = geom(b);
+    let p = (t / CARRY_PERIOD) % 1.0;
+    let stride = CARRY_SPEEDUP * walk_speed(b) * CARRY_DUTY * CARRY_PERIOD;
+    let (paws, flex) = gait(rest_paws(&g), p, [0.0, 0.5, 0.5, 0.0], CARRY_DUTY, stride, 0.12 * b.leg_len);
+    let bob = 0.02 * (p * TAU * 2.0).cos();
+    let mut c = Drive::new(add(g.hip, [0.0, bob]), add(g.sh, [0.0, bob]), add(head_rest(b, &g), [0.03, 0.04 + bob]), paws);
+    c.flex = flex;
+    c.head_rot = 0.12;
+    c.mouth = if toy.is_some() { 0.45 } else { 0.1 };
+    c.ear_back = 0.2;
+    c.tail_angs = Some(hang_map(|a, i| a + 0.35 + (p * TAU).sin() * 0.12 * (i + 1.0) * 0.5));
+    c.toy = toy;
+    build(b, &g, c)
+}
+
+/// Head down at the bowl, chewing.
+fn eat(b: &Body, t: f64) -> Skel {
+    let g = geom(b);
+    let chew = (t * TAU / 0.5).sin();
+    let mut c = Drive::new(g.hip, add(g.sh, [0.0, -0.05]), add(g.sh, [0.36, -0.42 + 0.015 * chew]), rest_paws(&g));
+    c.head_rot = -1.05;
+    c.mouth = 0.6 * (PI * (t % 1.0)).sin();
+    c.ear_back = 0.1;
+    c.tail_angs = Some(hang_map(|a, i| a + 0.15 + (t * TAU).sin() * 0.06 * (i + 1.0) * 0.5));
+    build(b, &g, c)
+}
+
+/// Happy: the tail sweeps, the body wiggles, now and then a lip lick.
+fn wag(b: &Body, t: f64) -> Skel {
+    let g = geom(b);
+    let w = (t * TAU * 2.5).sin();
+    let k = t % 2.4;
+    let lick = if (1.2..1.6).contains(&k) { (PI * (k - 1.2) / 0.4).sin() } else { 0.0 };
+    let mut c = Drive::new(add(g.hip, [0.02 * w, 0.0]), g.sh, add(head_rest(b, &g), [0.0, 0.01 * w]), rest_paws(&g));
+    c.head_rot = 0.12;
+    c.mouth = 0.08 + 0.3 * lick;
+    c.tongue = lick;
+    c.ear_back = 0.25;
+    // tail up and swinging 35 degrees each way
+    c.tail_angs = Some(hang_map(|_, i| 2.75 - 0.18 * i + 0.61 * w * (0.7 + 0.15 * i)));
+    build(b, &g, c)
+}
+
+/// Petted: sits and leans in, eyes closed.
+fn lean(b: &Body, t: f64) -> Skel {
+    let mut s = sit_skel(b, t, None, false, 0.21);
+    s.eyes = 0.0;
+    s.mouth = 0.05;
+    s.tongue = 0.0;
+    s
+}
+
+/// Tug-of-war: braced, hips back and low, shaking the rope.
+fn tug(b: &Body, t: f64) -> Skel {
+    let g = geom(b);
+    let shake = (t * TAU * 3.0 / 0.9).sin();
+    let rest = rest_paws(&g);
+    let paws = Paws { nf: add(rest.nf, [0.14, 0.0]), ff: add(rest.ff, [0.12, 0.0]), nh: rest.nh, fh: rest.fh };
+    let mut c = Drive::new(add(g.hip, [-0.08, -0.12]), add(g.sh, [-0.02, -0.06]), add(head_rest(b, &g), [0.06, -0.22]), paws);
+    c.flex = [0.0, 0.0, 0.5, 0.5];
+    c.head_rot = -0.10 + 0.314 * shake;
+    c.mouth = 0.15;
+    c.ear_back = 0.35;
+    c.tail_angs = Some(hang_map(|a, i| a + 0.25 + shake * 0.05 * (i + 1.0)));
+    build(b, &g, c)
+}
+
+/// Waking up: a play bow and back, once.
+fn stretch(b: &Body, t: f64) -> Skel {
+    let g = geom(b);
+    let k = ramp(t.min(1.5), 0.5, 1.0, 1.5);
+    let rest = rest_paws(&g);
+    let paws = Paws { nf: add(rest.nf, [0.16 * k, 0.0]), ff: add(rest.ff, [0.16 * k, 0.0]), nh: rest.nh, fh: rest.fh };
+    let mut c = Drive::new(add(g.hip, [0.0, 0.05 * k]), add(g.sh, [0.04 * k, -0.27 * k]), add(head_rest(b, &g), [0.12 * k, -0.34 * k]), paws);
+    c.head_rot = 0.08 - 0.25 * k;
+    c.mouth = 0.5 * k;
+    c.tongue = 0.4 * k;
+    c.ear_back = 0.3 * k;
+    c.tail_angs = Some(hang_map(|a, i| a + 1.1 * k * (0.6 + 0.2 * i)));
+    build(b, &g, c)
 }
 
 fn stand(b: &Body, t: f64, toy: Option<Toy>) -> Skel {
@@ -439,7 +620,8 @@ fn sleep(b: &Body, t: f64) -> Skel {
     build(b, &g, c)
 }
 
-fn sit_skel(b: &Body, t: f64, toy: Option<Toy>, tilt: bool) -> Skel {
+/// `lean`: radians the upper body tips towards the facing side, about the hip.
+fn sit_skel(b: &Body, t: f64, toy: Option<Toy>, tilt: bool, lean: f64) -> Skel {
     // measured off Alex's side-on sitting photo, in withers units, from the front paws
     let g = geom(b);
     let (lk, bl, f) = (b.leg_len, b.body_len, b.fluff);
@@ -477,6 +659,11 @@ fn sit_skel(b: &Body, t: f64, toy: Option<Toy>, tilt: bool) -> Skel {
             (if tilt { 0.50 } else { 0.57 }) * lk + 0.06 * (b.head - 1.0) + (if tilt { 0.0 } else { 0.004 * pant }),
         ],
     );
+    let (sh, head) = if lean != 0.0 {
+        (add(hip, rot(sub(sh, hip), -lean)), add(hip, rot(sub(head, hip), -lean)))
+    } else {
+        (sh, head)
+    };
     let rest = rest_paws(&g);
     let mut c = Drive::new(hip, sh, head, Paws { nf: [pp, PAW_Y], ff: [pp + 0.06, PAW_Y], nh: rest.nh, fh: rest.fh });
     c.head_rot = 0.22;

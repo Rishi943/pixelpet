@@ -24,10 +24,38 @@ pub enum Anim {
     Tilt,
     Hop,
     Sleep,
+    // play (spec §5); dog: run carry eat wag lean tug stretch,
+    // rabbit: eat flop nudge tug stretch. Each species falls back to a
+    // near pose for the others.
+    Run,
+    Carry,
+    Eat,
+    Wag,
+    Lean,
+    Tug,
+    Stretch,
+    Flop,
+    Nudge,
 }
 
 impl Anim {
-    pub const ALL: [Anim; 6] = [Anim::Stand, Anim::Walk, Anim::Sit, Anim::Tilt, Anim::Hop, Anim::Sleep];
+    pub const ALL: [Anim; 15] = [
+        Anim::Stand,
+        Anim::Walk,
+        Anim::Sit,
+        Anim::Tilt,
+        Anim::Hop,
+        Anim::Sleep,
+        Anim::Run,
+        Anim::Carry,
+        Anim::Eat,
+        Anim::Wag,
+        Anim::Lean,
+        Anim::Tug,
+        Anim::Stretch,
+        Anim::Flop,
+        Anim::Nudge,
+    ];
 
     pub fn from_name(s: &str) -> Option<Anim> {
         Anim::ALL.into_iter().find(|a| a.name() == s)
@@ -41,6 +69,15 @@ impl Anim {
             Anim::Tilt => "tilt",
             Anim::Hop => "hop",
             Anim::Sleep => "sleep",
+            Anim::Run => "run",
+            Anim::Carry => "carry",
+            Anim::Eat => "eat",
+            Anim::Wag => "wag",
+            Anim::Lean => "lean",
+            Anim::Tug => "tug",
+            Anim::Stretch => "stretch",
+            Anim::Flop => "flop",
+            Anim::Nudge => "nudge",
         }
     }
 }
@@ -170,6 +207,31 @@ pub fn render_toy(toy: Toy, look: &Look) -> Frame {
     Frame { w, h, ox: fs.ox, gy: fs.gy, rgba: out }
 }
 
+/// Plays once (for `period` seconds) rather than looping.
+pub fn is_one_shot(anim: Anim) -> bool {
+    anim == Anim::Stretch
+}
+
+/// The same skeleton with the eyes shut (being petted).
+pub fn with_eyes_closed(s: Skel) -> Skel {
+    match s {
+        Skel::Dog(d) => Skel::Dog(dog::Skel { eyes: 0.0, ..d }),
+        Skel::Rabbit(r) => Skel::Rabbit(rabbit::Skel { eyes: 0.0, ..r }),
+    }
+}
+
+/// The mouth in frame pixels (the space of `Frame.ox`/`gy`, before zoom
+/// and mirroring), where a rope or food meets the pet.
+pub fn mouth(pet: Pet, s: &Skel, look: &Look) -> (f64, f64) {
+    let fs = frame_size(look);
+    let p = match (pet, s) {
+        (Pet::Dog, Skel::Dog(d)) => dog::mouth(d, &dog::body(look)),
+        (Pet::Rabbit, Skel::Rabbit(r)) => rabbit::mouth(r, &rabbit::body(look)),
+        _ => panic!("skeleton of the other species"),
+    };
+    (fs.ox as f64 + p[0] * look.r, fs.gy as f64 - p[1] * look.r)
+}
+
 /// Loop length of an anim, in seconds.
 pub fn period(pet: Pet, anim: Anim) -> f64 {
     match pet {
@@ -182,6 +244,8 @@ pub fn period(pet: Pet, anim: Anim) -> f64 {
 pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
     match (pet, anim) {
         (Pet::Dog, Anim::Walk) => dog::walk_speed(&dog::body(look)),
+        (Pet::Dog, Anim::Run) => dog::RUN_SPEEDUP * dog::walk_speed(&dog::body(look)),
+        (Pet::Dog, Anim::Carry) => dog::CARRY_SPEEDUP * dog::walk_speed(&dog::body(look)),
         (Pet::Rabbit, Anim::Walk) => rabbit::WALK_SPEED,
         _ => 0.0,
     }

@@ -176,6 +176,19 @@ pub fn period(anim: Anim) -> f64 {
         Anim::Tilt => 4.0,
         Anim::Hop => 1.2,
         Anim::Sleep => 9.6,
+        // play anims: fallbacks until the bun has its own (M2 Task 2)
+        Anim::Run | Anim::Carry | Anim::Nudge => 0.62,
+        Anim::Eat | Anim::Wag | Anim::Lean | Anim::Tug | Anim::Stretch | Anim::Flop => 5.2,
+    }
+}
+
+/// Where a rope or food meets the mouth, in rig units.
+pub fn mouth(s: &Skel, b: &Body) -> P {
+    let hs = b.head * if s.head_front { 1.18 } else { 1.1 };
+    if s.head_front {
+        add(s.head, rot(mul([0.0, -0.09], hs), s.tilt))
+    } else {
+        add(s.head, rot(mul([0.23, -0.07], hs), s.head_rot))
     }
 }
 
@@ -322,6 +335,9 @@ pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
                 ..l
             }
         }
+        // play anims: fallbacks until the bun has its own (M2 Task 2)
+        Anim::Run | Anim::Carry | Anim::Nudge => pose(Anim::Walk, look, t),
+        Anim::Eat | Anim::Wag | Anim::Lean | Anim::Tug | Anim::Stretch | Anim::Flop => pose(Anim::Stand, look, t),
     }
 }
 

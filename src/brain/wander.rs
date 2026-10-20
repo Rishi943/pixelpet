@@ -89,6 +89,7 @@ impl Wander {
             Anim::Tilt => 4.0,
             Anim::Hop => 2.4,
             Anim::Sleep => self.rng.range(9.6, 14.4),
+            _ => 2.0, // not in the script
         };
         let turn = anim == Anim::Walk && self.rng.f64() < 0.35;
         Next { anim, secs, turn }
