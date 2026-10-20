@@ -10,7 +10,7 @@ fn px(img: &pixelpet::window::Rgba, x: usize, y: usize) -> [u8; 4] {
 }
 
 fn show(anim: Anim, anim_start: f64) -> Show {
-    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0, bubble: false, depth: 0.0, eyes_closed: false, playing: false, props: Default::default() }
+    Show { anim, anim_start, x: 500.0, lift: 0.0, facing: 1, visible: true, opacity: 100, zzz: false, hover_for: 0.0, bubble: false, depth: 0.0, vp_x: 0.0, eyes_closed: false, playing: false, props: Default::default() }
 }
 
 #[test]

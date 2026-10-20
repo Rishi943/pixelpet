@@ -2,6 +2,7 @@
 //! OS and no pixels. Coordinates are physical pixels; `x` is the pet's ground
 //! point and `lift` its height above the ground.
 
+pub mod fetch;
 pub mod pet;
 pub mod wander;
 
@@ -24,7 +25,7 @@ const HEART_LIFE: f64 = 1.2;
 /// Petting ends once the cursor has been off the pet this long.
 const PET_LEAVE: f64 = 0.5;
 const DRAG_START_PX: i32 = 4;
-const GRAVITY: f64 = 2400.0;
+pub(crate) const GRAVITY: f64 = 2400.0;
 const LANDED_STAND: f64 = 1.0;
 const MAX_DT: f64 = 0.1;
 
@@ -53,6 +54,9 @@ pub struct Inputs {
     pub over_toy: bool,
     /// End play now (right-click on the pet or Esc during play), for one tick.
     pub cancel: bool,
+    /// How fast the cursor was moving upwards when the button was let go
+    /// (px/s, over the last 100 ms); the app sets it with `Mouse::Up`.
+    pub flick_up: f64,
 }
 
 /// A choice from the bubble.
@@ -99,6 +103,7 @@ pub struct Props {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Play {
     Pet { strokes: pet::Strokes, off_since: Option<f64> },
+    Fetch { toy: Toy, st: fetch::State },
 }
 
 /// What to show this frame.
@@ -119,6 +124,9 @@ pub struct Show {
     pub bubble: bool,
     /// How far into the screen the pet is (0 = on the ground line).
     pub depth: f64,
+    /// The x of the vanishing point things at depth shrink towards (the
+    /// throw's x); its y is 0.3 of the work area's height above the ground.
+    pub vp_x: f64,
     pub eyes_closed: bool,
     /// Pet, fetch, tug or feed is going on.
     pub playing: bool,
@@ -167,6 +175,7 @@ pub struct Brain {
     heart_i: usize,
     eyes_closed: bool,
     depth: f64,
+    vp_x: f64,
     /// last mouse input during play (for PLAY_IDLE_END)
     play_input_at: f64,
     last_cursor: Option<(i32, i32)>,
@@ -202,6 +211,7 @@ impl Brain {
             heart_i: 0,
             eyes_closed: false,
             depth: 0.0,
+            vp_x: work.x as f64 + work.w as f64 / 2.0,
             play_input_at: now,
             last_cursor: None,
         };
@@ -226,8 +236,12 @@ impl Brain {
                 self.mode = Mode::Play(Play::Pet { strokes: pet::Strokes::default(), off_since: None });
                 self.show_anim(Anim::Stand, now);
             }
-            // fetch, tug and feed: M2 tasks 7-9
-            Choice::Fetch(_) | Choice::Tug | Choice::Feed(_) => {}
+            Choice::Fetch(toy) => {
+                self.mode = Mode::Play(Play::Fetch { toy, st: fetch::State::Waiting { since: now, at: None } });
+                self.show_anim(Anim::Stand, now);
+            }
+            // tug and feed: M2 tasks 8-9
+            Choice::Tug | Choice::Feed(_) => {}
         }
     }
 
@@ -239,8 +253,9 @@ impl Brain {
         self.next_wander(now);
     }
 
-    fn play(&mut self, p: Play, inp: &Inputs, now: f64) {
+    fn play(&mut self, p: Play, inp: &Inputs, now: f64, dt: f64, lo: f64, hi: f64) {
         match p {
+            Play::Fetch { toy, st } => self.fetch(toy, st, inp, now, dt, lo, hi),
             Play::Pet { mut strokes, mut off_since } => {
                 if inp.over_pet {
                     off_since = None;
@@ -338,7 +353,7 @@ impl Brain {
 
         // ---- mouse: click vs drag
         match inp.mouse {
-            Mouse::Down(px, py) if inp.over_pet && !matches!(self.mode, Mode::Drag | Mode::Fall { .. }) => {
+            Mouse::Down(px, py) if inp.over_pet && !inp.over_toy && !matches!(self.mode, Mode::Drag | Mode::Fall { .. }) => {
                 self.down = Some((px, py));
             }
             Mouse::Move(px, py) => {
@@ -439,7 +454,7 @@ impl Brain {
                     self.show_anim(Anim::Stretch, now);
                 }
             }
-            Mode::Play(p) => self.play(p, inp, now),
+            Mode::Play(p) => self.play(p, inp, now, dt, lo, hi),
             _ if inp.over_pet => {
                 let start = *self.hover_start.get_or_insert_with(|| {
                     self.hover_left = (self.w_end - now).max(0.0);
@@ -516,6 +531,7 @@ impl Brain {
             hover_for,
             bubble: self.bubble,
             depth: self.depth,
+            vp_x: self.vp_x,
             eyes_closed: self.eyes_closed,
             playing: matches!(self.mode, Mode::Play(_)),
             props: self.props,

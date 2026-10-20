@@ -125,6 +125,8 @@ struct FrameKey {
     /// the look's `r` at this depth
     r: u32,
     eyes_closed: bool,
+    /// a toy in the mouth (fetch)
+    toy: Option<rig::Toy>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -221,10 +223,11 @@ impl View {
             collar,
             r: look.r as u32,
             eyes_closed: show.eyes_closed,
+            toy: show.props.toy.filter(|t| t.in_mouth).map(|t| t.toy),
         };
         if self.frame_key != Some(key) {
             let t = tick as f64 / FPS;
-            let mut s = rig::pose(self.pet, show.anim, look, t, None);
+            let mut s = rig::pose(self.pet, show.anim, look, t, key.toy);
             if let (Some(b), true) = (&self.blend, step < 3) {
                 s = rig::lerp(&b.from, &s, step as f64 / BLEND_STEPS);
             }

@@ -87,6 +87,8 @@ pub struct App {
     cancel_pending: bool,
     esc_was_down: bool,
     last_show: Option<Show>,
+    /// recent (time, cursor y) while the button is held, for the flick speed
+    drag_trail: VecDeque<(f64, i32)>,
 }
 
 fn seed() -> u64 {
@@ -128,6 +130,7 @@ impl App {
             cancel_pending: false,
             esc_was_down: false,
             last_show: None,
+            drag_trail: VecDeque::new(),
             mouse: VecDeque::new(),
             button_down: false,
             idle: None,
@@ -206,6 +209,20 @@ impl App {
             None if self.button_down => cursor.map_or(Mouse::None, |(x, y)| Mouse::Move(x, y)),
             None => Mouse::None,
         };
+        // the flick: how fast the cursor rose over the last 100 ms before letting go
+        if let (true, Some((_, y))) = (self.button_down, cursor) {
+            self.drag_trail.push_back((now, y));
+        }
+        while self.drag_trail.front().is_some_and(|(t, _)| now - t > 0.1) {
+            self.drag_trail.pop_front();
+        }
+        let flick_up = match (mouse, self.drag_trail.front(), self.drag_trail.back()) {
+            (Mouse::Up(..), Some(&(t0, y0)), Some(&(t1, y1))) if t1 > t0 => (y0 - y1) as f64 / (t1 - t0),
+            _ => 0.0,
+        };
+        if let Mouse::Up(..) = mouse {
+            self.drag_trail.clear();
+        }
         let zoom = self.settings.size.zoom();
         let inp = Inputs {
             now,
@@ -219,12 +236,13 @@ impl App {
             over_bubble: self.over_bubble(cursor),
             over_toy: self.over_toy(cursor),
             cancel: std::mem::take(&mut self.cancel_pending),
+            flick_up,
         };
         let show = self.brain.update(&inp, &self.settings);
         self.was_over = inp.over_pet;
         self.last_x = show.x;
         self.last_show = Some(show);
-        self.present(&show, now, zoom, work.bottom());
+        self.present(&show, now, zoom, work);
         self.bubble_tick(el, &show, work);
         if self.open_menu_at_start && self.placed.is_some() {
             self.open_menu_at_start = false;
@@ -237,7 +255,10 @@ impl App {
         el.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
     }
 
-    fn present(&mut self, show: &Show, now: f64, zoom: u32, ground: i32) {
+    fn present(&mut self, show: &Show, now: f64, zoom: u32, work: Rect) {
+        let ground = work.bottom();
+        // things at depth shrink towards the vanishing point
+        let vp = (show.vp_x, ground as f64 - 0.3 * work.h as f64);
         let Some(win) = self.win.as_mut() else { return };
         if !show.visible {
             if !self.hidden {
@@ -248,17 +269,32 @@ impl App {
         }
         let (_, dx, dy) = self.view.frame(show, now, zoom, false, show.depth);
         let z = zoom as i32;
+        let (px, py, _) = crate::scene::project(show.x, show.depth, vp, ground as f64);
         // snap to whole art pixels in x
-        let left = (show.x.round() as i32 + dx).div_euclid(z) * z;
-        let top = ground + dy - show.lift.round() as i32;
+        let left = (px.round() as i32 + dx).div_euclid(z) * z;
+        let top = py.round() as i32 + dy - show.lift.round() as i32;
         let opacity = (show.opacity as f64 * 255.0 / 100.0).round() as u8;
         let key = (self.view.image_generation(), left, top, opacity);
         let hearts = show.props.hearts.iter().any(|h| h.is_some());
-        if self.presented == Some(key) && !self.hidden && !hearts {
+        if self.presented == Some(key) && !self.hidden && !hearts && !show.playing {
             return;
         }
         let mut sprites = vec![Sprite { img: self.view.image().clone(), x: left, y: top, part: Part::Pet }];
         let u = self.look.r * zoom as f64;
+        if let Some(t) = show.props.toy.filter(|t| !t.in_mouth) {
+            let (tx, ty, s) = crate::scene::project(t.x, t.depth, vp, ground as f64);
+            let f = rig::render_toy(t.toy, rig::look_scaled(self.look, s));
+            let img = zoomed(&f, zoom);
+            let x = tx.round() as i32 - f.ox * z;
+            let y = (ty - t.lift * s).round() as i32 - (f.gy + 1) * z;
+            // the toy goes in front of the pet unless it is behind (deeper)
+            let sprite = Sprite { img, x, y, part: Part::Toy };
+            if t.depth > show.depth + 1e-6 {
+                sprites.insert(0, sprite);
+            } else {
+                sprites.push(sprite);
+            }
+        }
         for t0 in show.props.hearts.iter().flatten() {
             let age = now - t0;
             let img = heart_image(zoom, age);
@@ -563,6 +599,20 @@ impl ApplicationHandler for App {
         }
         self.tick(el);
     }
+}
+
+/// A rig frame scaled up by `zoom`, nearest neighbour.
+fn zoomed(f: &rig::Frame, zoom: u32) -> crate::window::Rgba {
+    let z = zoom.max(1) as usize;
+    let mut img = crate::window::Rgba::new(f.w * z, f.h * z);
+    for y in 0..f.h * z {
+        for x in 0..f.w * z {
+            let s = ((y / z) * f.w + x / z) * 4;
+            let d = (y * f.w * z + x) * 4;
+            img.px[d..d + 4].copy_from_slice(&f.rgba[s..s + 4]);
+        }
+    }
+    img
 }
 
 /// A heart at `zoom`, faded by `age` over its last HEART_FADE seconds.

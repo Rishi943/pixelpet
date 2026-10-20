@@ -1,8 +1,8 @@
 //! Behaviour scenarios on a fake clock. Every test steps `update` at 30 Hz.
 
-use pixelpet::brain::{Brain, Choice, Inputs, Mouse, Show};
+use pixelpet::brain::{fetch, Brain, Choice, Inputs, Mouse, Show};
 use pixelpet::platform::Rect;
-use pixelpet::rig::{self, Anim, Pet};
+use pixelpet::rig::{self, Anim, Pet, Toy};
 use pixelpet::settings::{FullscreenMode, Settings};
 
 const DT: f64 = 1.0 / 30.0;
@@ -23,6 +23,8 @@ struct Sim {
     over_toy: bool,
     /// set for one step, as the app does on right-click or Esc during play
     cancel: bool,
+    /// upward flick speed at the last release, px/s (set with the Up)
+    flick_up: f64,
     last: Show,
 }
 
@@ -46,6 +48,7 @@ impl Sim {
             over_bubble: false,
             over_toy: false,
             cancel: false,
+            flick_up: 0.0,
         };
         let last = brain.update(&inp, &s);
         Sim {
@@ -61,6 +64,7 @@ impl Sim {
             over_bubble: false,
             over_toy: false,
             cancel: false,
+            flick_up: 0.0,
             last,
         }
     }
@@ -79,6 +83,7 @@ impl Sim {
             over_bubble: self.over_bubble,
             over_toy: self.over_toy,
             cancel: self.cancel,
+            flick_up: self.flick_up,
         };
         self.cancel = false;
         self.last = self.brain.update(&inp, &self.s);
@@ -551,4 +556,166 @@ fn choosing_closes_the_bubble() {
     assert!(sim.last.bubble);
     sim.brain.choose(Choice::Pet, sim.now);
     assert!(!sim.step().bubble);
+}
+
+// ---------------------------------------------------------------- M2: fetch
+
+/// Choose fetch with the cursor at (x, 700), grab the toy and flick it up
+/// at `speed` px/s.
+fn throw(sim: &mut Sim, toy: Toy, x: i32, speed: f64) {
+    sim.over_pet = false;
+    sim.cursor = Some((x, 700));
+    sim.brain.choose(Choice::Fetch(toy), sim.now);
+    let sh = sim.step();
+    let t = sh.props.toy.expect("the toy appears");
+    let (lo, hi) = sim.bounds();
+    let want = (x as f64).clamp(lo, hi);
+    assert!((t.x - want).abs() < 1.0 && t.lift > 0.0, "the toy appears under the cursor (kept on screen): {t:?}");
+    sim.over_toy = true;
+    sim.step_with(DT, Mouse::Down(x, 700));
+    for k in 1..=3 {
+        sim.cursor = Some((x, 700 - 100 * k));
+        sim.step_with(DT, Mouse::Move(x, 700 - 100 * k));
+    }
+    sim.over_toy = false;
+    sim.flick_up = speed;
+    sim.step_with(DT, Mouse::Up(x, 400));
+    sim.flick_up = 0.0;
+}
+
+/// Run until play settles (Ready) or `secs` pass; the anims seen, in order
+/// of first appearance, and the deepest the pet went.
+fn fetch_run(sim: &mut Sim, secs: f64) -> (Vec<Anim>, f64, Vec<bool>) {
+    let (mut seq, mut deepest, mut mouth) = (vec![], 0.0f64, vec![]);
+    let n = (secs / DT) as usize;
+    for _ in 0..n {
+        let sh = sim.step();
+        if seq.last() != Some(&sh.anim) {
+            seq.push(sh.anim);
+        }
+        deepest = deepest.max(sh.depth);
+        mouth.push(sh.props.toy.is_some_and(|t| t.in_mouth));
+        if sh.anim == Anim::Sit && sh.depth == 0.0 {
+            break;
+        }
+    }
+    (seq, deepest, mouth)
+}
+
+#[test]
+fn fetch_round_trip_alex() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Ball, 900, 3000.0);
+    // in flight: the toy goes into the screen
+    let d0 = sim.last.props.toy.unwrap().depth;
+    sim.run(0.3, |_, _| {});
+    let d1 = sim.last.props.toy.unwrap().depth;
+    assert!(d1 > d0, "toy depth {d0} -> {d1}");
+    let target = fetch::throw_depth(3000.0, sim.unit_px);
+    let (seq, deepest, mouth) = fetch_run(&mut sim, 40.0);
+    let at = |a: Anim| seq.iter().position(|x| *x == a).unwrap_or_else(|| panic!("{a:?} missing from {seq:?}"));
+    assert!(at(Anim::Run) < at(Anim::Eat) && at(Anim::Eat) < at(Anim::Carry) && at(Anim::Carry) < at(Anim::Sit), "{seq:?}");
+    assert!((deepest - target).abs() < 0.05, "ran to depth {deepest}, the toy was at {target}");
+    assert!(mouth.iter().any(|m| *m), "never carried it");
+    let sh = sim.last;
+    assert!(sh.playing && sh.anim == Anim::Sit && sh.depth == 0.0);
+    assert!((sh.x - 900.0).abs() <= sim.unit_px, "came back to {} not the cursor 900", sh.x);
+    let t = sh.props.toy.expect("the toy is by the pet");
+    assert!(!t.in_mouth && t.lift == 0.0 && t.depth == 0.0);
+    assert!((t.x - sh.x) * sh.facing as f64 > 0.0, "the toy is in front of the pet");
+}
+
+#[test]
+fn fetch_round_trip_bun() {
+    let mut sim = Sim::new(Pet::Rabbit);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Football, 900, 3000.0);
+    let (seq, deepest, mouth) = fetch_run(&mut sim, 60.0);
+    assert!(seq.contains(&Anim::Walk) && seq.contains(&Anim::Nudge), "{seq:?}");
+    assert!(!seq.contains(&Anim::Eat), "the bun doesn't pick it up");
+    assert!(deepest > 0.2);
+    assert!(mouth.iter().all(|m| !*m), "the bun never carries it in its mouth");
+    assert_eq!(sim.last.anim, Anim::Sit);
+}
+
+#[test]
+fn bun_noses_the_toy_ahead() {
+    let mut sim = Sim::new(Pet::Rabbit);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Football, 900, 3000.0);
+    let mut checked = 0;
+    for _ in 0..(60.0 / DT) as usize {
+        let sh = sim.step();
+        if sh.anim == Anim::Nudge {
+            let t = sh.props.toy.unwrap();
+            assert!((t.x - sh.x) * sh.facing as f64 > 0.0 && t.lift == 0.0, "toy not ahead of the nose: {t:?} pet x {}", sh.x);
+            checked += 1;
+        }
+        if sh.anim == Anim::Sit {
+            break;
+        }
+    }
+    assert!(checked > 10);
+}
+
+#[test]
+fn weak_flick_just_drops() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Ball, 700, 2.0 * 66.0);
+    let (seq, deepest, _) = fetch_run(&mut sim, 40.0);
+    assert_eq!(deepest, 0.0, "a weak flick doesn't throw it in");
+    assert!(seq.contains(&Anim::Carry) && seq.last() == Some(&Anim::Sit), "{seq:?}");
+}
+
+#[test]
+fn throw_depth_formula() {
+    assert_eq!(fetch::throw_depth(0.0, 66.0), 0.25);
+    assert_eq!(fetch::throw_depth(1650.0, 66.0), 1.0);
+    assert_eq!(fetch::throw_depth(1e9, 66.0), 3.0);
+}
+
+#[test]
+fn throw_target_clamped() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    throw(&mut sim, Toy::Ball, 5, 3000.0);
+    let (lo, hi) = sim.bounds();
+    let (seq, _, _) = fetch_run(&mut sim, 60.0);
+    assert!(seq.contains(&Anim::Eat), "never reached the toy: {seq:?}");
+    let t = sim.last.props.toy.unwrap();
+    assert!(t.x >= lo - 1e-6 && t.x <= hi + 1e-6, "toy at {} outside {lo}..{hi}", t.x);
+    assert!(sim.in_bounds(sim.last.x));
+}
+
+#[test]
+fn cancel_mid_flight() {
+    for when in [0.2, 1.5] {
+        let mut sim = Sim::new(Pet::Dog);
+        sim.run(1.0, |_, _| {});
+        throw(&mut sim, Toy::Coconut, 900, 3000.0);
+        sim.run(when, |_, _| {});
+        sim.cancel = true;
+        let sh = sim.step();
+        assert!(!sh.playing, "still playing after cancel at {when}");
+        assert!(sh.props.toy.is_none() && sh.depth == 0.0 && sh.lift == 0.0);
+    }
+}
+
+#[test]
+fn waiting_toy_drops() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    sim.cursor = Some((800, 700));
+    sim.brain.choose(Choice::Fetch(Toy::Ball), sim.now);
+    sim.step();
+    sim.cursor = Some((300, 300)); // the user wanders off; the toy stays put
+    sim.run(1.9, |_, sh| assert!(sh.props.toy.unwrap().lift > 0.0, "dropped too soon"));
+    sim.run(3.0, |_, _| {});
+    let t = sim.last.props.toy.unwrap();
+    assert!(t.lift == 0.0 && (t.x - 800.0).abs() < 1.0, "{t:?}");
+    let (seq, _, _) = fetch_run(&mut sim, 30.0);
+    assert_eq!(seq.last(), Some(&Anim::Sit), "the pet sits by it: {seq:?}");
+    assert!(sim.last.playing);
 }
