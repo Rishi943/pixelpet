@@ -42,7 +42,7 @@ pub enum State {
 impl Brain {
     /// Move the pet's (x, depth) towards (`tx`, `td`) at `anim`'s speed.
     /// True on arrival.
-    fn go_to(&mut self, tx: f64, td: f64, anim: Anim, now: f64, dt: f64, u: f64) -> bool {
+    pub(super) fn go_to(&mut self, tx: f64, td: f64, anim: Anim, now: f64, dt: f64, u: f64) -> bool {
         if (tx - self.x).abs() > 1.0 {
             self.facing = if tx > self.x { 1 } else { -1 };
         }

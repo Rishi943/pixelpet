@@ -2,6 +2,7 @@
 //! OS and no pixels. Coordinates are physical pixels; `x` is the pet's ground
 //! point and `lift` its height above the ground.
 
+pub mod feed;
 pub mod fetch;
 pub mod pet;
 pub mod tug;
@@ -110,6 +111,7 @@ enum Play {
     Pet { strokes: pet::Strokes, off_since: Option<f64> },
     Fetch { toy: Toy, st: fetch::State },
     Tug { st: tug::State },
+    Feed { food: Food, st: feed::State },
 }
 
 /// What to show this frame.
@@ -186,6 +188,9 @@ pub struct Brain {
     vp_x: f64,
     warp: Option<(i32, i32)>,
     rng: wander::Rng,
+    /// from the last update: px per rig unit, and the ground line
+    last_u: f64,
+    last_ground: f64,
     /// last mouse input during play (for PLAY_IDLE_END)
     play_input_at: f64,
     last_cursor: Option<(i32, i32)>,
@@ -224,6 +229,8 @@ impl Brain {
             vp_x: work.x as f64 + work.w as f64 / 2.0,
             warp: None,
             rng: wander::Rng::new(seed ^ 0x7469_6775),
+            last_u: 66.0,
+            last_ground: work.bottom() as f64,
             play_input_at: now,
             last_cursor: None,
         };
@@ -238,7 +245,14 @@ impl Brain {
     }
 
     /// A choice from the bubble. Closes the bubble and starts that play.
+    /// Food drops from just above the pet's head.
     pub fn choose(&mut self, c: Choice, now: f64) {
+        let from = (self.x.round() as i32, (self.last_ground - 1.6 * self.last_u).round() as i32);
+        self.choose_at(c, now, from)
+    }
+
+    /// `choose`, with the bubble at `from` (screen px): food drops from there.
+    pub fn choose_at(&mut self, c: Choice, now: f64, from: (i32, i32)) {
         self.bubble = false;
         self.bubble_off_since = None;
         self.hover_start = None;
@@ -256,8 +270,12 @@ impl Brain {
                 self.mode = Mode::Play(Play::Tug { st: tug::State::new(now) });
                 self.show_anim(Anim::Tug, now);
             }
-            // feed: M2 task 9
-            Choice::Feed(_) => {}
+            Choice::Feed(food) => {
+                let side = if from.0 as f64 >= self.x { 1.0 } else { -1.0 };
+                self.props.food = Some(feed::dropped(food, from, self.last_ground));
+                self.mode = Mode::Play(Play::Feed { food, st: feed::State::Falling { v: 0.0, side, landed_x: None } });
+                self.show_anim(Anim::Stand, now);
+            }
         }
     }
 
@@ -273,6 +291,7 @@ impl Brain {
         match p {
             Play::Fetch { toy, st } => self.fetch(toy, st, inp, now, dt, lo, hi),
             Play::Tug { st } => self.tug(st, inp, now),
+            Play::Feed { food, st } => self.feed(food, st, inp, now, dt, lo, hi),
             Play::Pet { mut strokes, mut off_since } => {
                 if inp.over_pet {
                     off_since = None;
@@ -362,6 +381,8 @@ impl Brain {
         let now = inp.now;
         let dt = (now - self.last_now).clamp(0.0, MAX_DT);
         self.warp = None;
+        self.last_u = inp.unit_px;
+        self.last_ground = inp.work.bottom() as f64;
         self.last_now = now;
         let u = inp.unit_px;
         let lo = inp.work.x as f64 + 1.2 * u;

@@ -24,6 +24,10 @@ const POLL_EVERY: f64 = 2.0;
 /// The menu closes when the cursor has been away from it this long.
 const MENU_AWAY_CLOSE: f64 = 4.0;
 
+/// Crumbs fall this many rig units over CRUMB_LIFE seconds.
+const CRUMB_FALL: f64 = 0.5;
+const CRUMB_LIFE: f64 = 0.8;
+
 /// Hearts rise this many rig units over their life, fading at the end.
 const HEART_RISE: f64 = 1.5;
 const HEART_LIFE: f64 = 1.2;
@@ -311,6 +315,31 @@ impl App {
             let hy = ground as f64 - 1.5 * u - HEART_RISE * u * (age / HEART_LIFE) - img.h as f64;
             sprites.push(Sprite { img, x: hx.round() as i32, y: hy.round() as i32, part: Part::Effect });
         }
+        if let Some(f) = show.props.food {
+            let fr = rig::props::food(f.food, f.bites);
+            if fr.w > 0 {
+                let x = f.x.round() as i32 - fr.ox * z;
+                let y = (ground as f64 - f.lift).round() as i32 - (fr.gy + 1) * z;
+                sprites.insert(0, Sprite { img: zoomed(&fr, zoom), x, y, part: Part::Food });
+            }
+            if let Some(t0) = show.props.crumbs {
+                let age = now - t0;
+                if age < CRUMB_LIFE {
+                    let c = rig::props::crumb(f.food);
+                    for i in 0..6 {
+                        // a little spread, falling to the ground
+                        let dx = (i as f64 - 2.5) * 0.12 * u + ((i * 37 % 7) as f64 - 3.0) * 0.02 * u;
+                        let y = ground as f64 - 0.6 * u + CRUMB_FALL * u * (age / CRUMB_LIFE);
+                        let mut img = crate::window::Rgba::new(z as usize, z as usize);
+                        for p in img.px.chunks_mut(4) {
+                            p.copy_from_slice(&c);
+                        }
+                        let x = (f.x + dx).round() as i32;
+                        sprites.push(Sprite { img, x, y: y.min(ground as f64 - z as f64).round() as i32, part: Part::Effect });
+                    }
+                }
+            }
+        }
         let rope = match (show.props.rope_to, self.view.mouth()) {
             (Some(to), Some((mx, my))) => {
                 let sag = if show.props.taut { 0.2 } else { 0.4 } * u;
@@ -394,7 +423,9 @@ impl App {
         let scale = self.settings.size.zoom();
         match self.bubble.click(x, y, scale) {
             Some(choice) => {
-                self.brain.choose(choice, self.now());
+                // food drops from the bubble's tail
+                let from = (b.left + b.w / 2, b.top + b.h);
+                self.brain.choose_at(choice, self.now(), from);
                 self.bubble.reset();
                 self.bubble_open = None;
             }

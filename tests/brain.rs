@@ -861,3 +861,119 @@ fn cancel_mid_tug() {
     sim.run(3.0, |_, _| {});
     assert_eq!(sim.warps.len(), n, "moved the cursor after the cancel");
 }
+
+// ---------------------------------------------------------------- M2: feed
+
+/// Feed `food` from a bubble at `from`; returns (anims in order, bites seen in
+/// order, lifts while falling) until play ends or 20 s pass.
+fn feed_run(sim: &mut Sim, food: rig::Food, from: (i32, i32)) -> (Vec<Anim>, Vec<u8>, Vec<f64>) {
+    sim.brain.choose_at(Choice::Feed(food), sim.now, from);
+    let (mut anims, mut bites, mut lifts) = (vec![], vec![], vec![]);
+    for _ in 0..(20.0 / DT) as usize {
+        let sh = sim.step();
+        if anims.last() != Some(&sh.anim) {
+            anims.push(sh.anim);
+        }
+        if let Some(f) = sh.props.food {
+            assert_eq!(f.food, food);
+            if bites.last() != Some(&f.bites) {
+                bites.push(f.bites);
+            }
+            if f.lift > 0.0 || lifts.is_empty() {
+                lifts.push(f.lift);
+            }
+        }
+        if !sh.playing {
+            break;
+        }
+    }
+    (anims, bites, lifts)
+}
+
+#[test]
+fn feed_alex_chicken() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    let bubble = (sim.last.x as i32 + 30, 850);
+    let (anims, bites, lifts) = feed_run(&mut sim, rig::Food::Chicken, bubble);
+    assert!(lifts.len() > 3 && lifts.windows(2).all(|w| w[1] <= w[0]), "the food falls: {lifts:?}");
+    let eat = anims.iter().position(|a| *a == Anim::Eat).expect("never ate");
+    assert!(anims[..eat].contains(&Anim::Walk), "walked over first: {anims:?}");
+    assert_eq!(anims.get(eat + 1), Some(&Anim::Wag), "then wags: {anims:?}");
+    assert_eq!(bites, [0, 1, 2, 3], "three bites");
+    assert!(!sim.last.playing && sim.last.props.food.is_none());
+}
+
+#[test]
+fn eating_takes_its_time() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    sim.brain.choose_at(Choice::Feed(rig::Food::Bone), sim.now, (sim.last.x as i32, 850));
+    let (mut eat_t, mut wag_t, mut crumbs) = (0.0, 0.0, false);
+    for _ in 0..(20.0 / DT) as usize {
+        let sh = sim.step();
+        match sh.anim {
+            Anim::Eat => eat_t += DT,
+            Anim::Wag => wag_t += DT,
+            _ => {}
+        }
+        crumbs |= sh.props.crumbs.is_some();
+        if !sh.playing {
+            break;
+        }
+    }
+    assert!((eat_t - 2.4).abs() < 0.1, "ate for {eat_t} s");
+    assert!((wag_t - 1.6).abs() < 0.1, "wagged for {wag_t} s");
+    assert!(crumbs, "no crumbs");
+}
+
+#[test]
+fn feed_bun_carrot() {
+    let mut sim = Sim::new(Pet::Rabbit);
+    sim.run(1.0, |_, _| {});
+    let from = (sim.last.x as i32 - 30, 850);
+    let (anims, bites, _) = feed_run(&mut sim, rig::Food::Carrot, from);
+    let eat = anims.iter().position(|a| *a == Anim::Eat).expect("never ate");
+    assert_eq!(anims.get(eat + 1), Some(&Anim::Hop), "a binky after: {anims:?}");
+    assert_eq!(bites, [0, 1, 2, 3]);
+    assert!(!sim.last.playing);
+}
+
+#[test]
+fn food_lands_on_the_ground_in_reach() {
+    let mut sim = Sim::new(Pet::Dog);
+    // walk the pet to the right edge
+    sim.brain.place(5000.0);
+    sim.run(0.5, |_, _| {});
+    let (lo, hi) = sim.bounds();
+    sim.brain.choose_at(Choice::Feed(rig::Food::Kibble), sim.now, (WORK.w - 5, 850));
+    let mut ate = false;
+    for _ in 0..(20.0 / DT) as usize {
+        let sh = sim.step();
+        if let Some(f) = sh.props.food {
+            assert!(f.x >= lo - 1e-6 && f.x <= hi + 1e-6, "food at {} off the ground {lo}..{hi}", f.x);
+        }
+        ate |= sh.anim == Anim::Eat;
+        assert!(sim.in_bounds(sh.x));
+        if !sh.playing {
+            break;
+        }
+    }
+    assert!(ate, "couldn't reach it");
+}
+
+#[test]
+fn cancel_mid_meal() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.run(1.0, |_, _| {});
+    sim.brain.choose_at(Choice::Feed(rig::Food::Chicken), sim.now, (sim.last.x as i32, 850));
+    for _ in 0..(10.0 / DT) as usize {
+        if sim.step().anim == Anim::Eat {
+            break;
+        }
+    }
+    assert_eq!(sim.last.anim, Anim::Eat);
+    sim.cancel = true;
+    let sh = sim.step();
+    assert!(!sh.playing && sh.props.food.is_none() && sh.props.crumbs.is_none());
+}
