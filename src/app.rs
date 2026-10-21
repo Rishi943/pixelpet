@@ -700,7 +700,14 @@ fn event_loop() -> Result<EventLoop<()>, String> {
     EventLoop::builder().with_x11().build().map_err(|e| format!("PixelPet needs X11 or XWayland ({e})"))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn event_loop() -> Result<EventLoop<()>, String> {
+    // no Dock icon and no menu bar: the pet is an accessory
+    use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+    EventLoop::builder().with_activation_policy(ActivationPolicy::Accessory).build().map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn event_loop() -> Result<EventLoop<()>, String> {
     EventLoop::new().map_err(|e| e.to_string())
 }

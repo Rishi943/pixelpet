@@ -27,7 +27,12 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use self::linux::PetWindow;
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use self::macos::PetWindow;
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod unsupported {
     use super::Rgba;
     use winit::event_loop::ActiveEventLoop;
@@ -53,5 +58,5 @@ mod unsupported {
         pub fn set_click_through(&self, _through: bool) {}
     }
 }
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub use self::unsupported::PetWindow;

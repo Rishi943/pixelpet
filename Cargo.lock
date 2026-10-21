@@ -851,6 +851,10 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "pixelpet"
 version = "0.1.0"
 dependencies = [
+ "core-foundation",
+ "core-graphics",
+ "objc2",
+ "objc2-foundation",
  "windows-sys 0.52.0",
  "winit",
  "x11rb",

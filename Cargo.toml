@@ -32,6 +32,13 @@ version = "=0.13.2"
 default-features = false
 features = ["allow-unsafe-code", "dl-libxcb", "image", "shape", "randr", "screensaver"]
 
+# the macOS crates winit already uses
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.5.3"
+objc2-foundation = { version = "=0.2.2", features = ["NSString"] }
+core-graphics = "=0.23.2"
+core-foundation = "=0.9.4"
+
 [[test]]
 name = "window_hit"
 harness = false
