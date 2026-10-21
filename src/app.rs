@@ -105,6 +105,8 @@ impl App {
     pub fn new() -> App {
         let platform = platform::native();
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("PixelPet.exe"));
+        // "the program" is the AppImage itself when running from one
+        let exe = platform::pure::autostart_target(&exe, &|k| std::env::var(k).ok()).unwrap_or(exe);
         let settings_path = settings::settings_path(settings::current_os(), &exe, &|k| std::env::var(k).ok());
         let settings = settings::load(&settings_path);
         // launch on startup follows the program if it moved

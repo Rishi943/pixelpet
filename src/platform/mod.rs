@@ -153,6 +153,8 @@ pub mod pure;
 
 #[cfg(windows)]
 mod windows;
+#[cfg(target_os = "linux")]
+mod linux;
 
 /// Held for as long as this is the one running PixelPet.
 pub struct InstanceGuard {
@@ -179,13 +181,20 @@ pub fn claim_single_instance(name: &str) -> Option<InstanceGuard> {
     }
 }
 
-/// The real platform for this OS (`Stub` where M1 has none).
+/// The real platform for this OS (`Stub` where there is none, or no X server).
 pub fn native() -> Box<dyn Platform> {
     #[cfg(windows)]
     {
         Box::new(windows::Win)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        match linux::X11::open() {
+            Some(x) => Box::new(x),
+            None => Box::new(Stub),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Box::new(Stub)
     }
