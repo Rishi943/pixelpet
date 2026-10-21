@@ -143,7 +143,12 @@ impl PetWindow {
             let _: () = msg_send![self.layer, setContentsScale: scale];
             // a foreign-types `&CGImageRef` is the CGImageRef pointer itself
             let contents = &*image as *const core_graphics::image::CGImageRef as *mut AnyObject;
+            // no implicit animation: Core Animation cross-fades a layer's
+            // contents by default, which smeared a walking pet on CI
+            let _: () = msg_send![class!(CATransaction), begin];
+            let _: () = msg_send![class!(CATransaction), setDisableActions: Bool::YES];
             let _: () = msg_send![self.layer, setContents: contents];
+            let _: () = msg_send![class!(CATransaction), commit];
             if self.opacity != Some(opacity) {
                 let _: () = msg_send![self.ns_window, setAlphaValue: opacity as f64 / 255.0];
                 self.opacity = Some(opacity);
