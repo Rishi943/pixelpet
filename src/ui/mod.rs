@@ -4,4 +4,5 @@
 pub mod bubble;
 pub mod font;
 pub mod icon;
+pub mod maker;
 pub mod menu;
