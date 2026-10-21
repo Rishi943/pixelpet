@@ -2,6 +2,7 @@
 //! A Rust port of the approved drafts in `drafts/looks/`, proven identical to
 //! them by `tests/parity.rs`.
 
+pub mod breeds;
 pub mod core;
 pub mod design;
 pub mod dog;
@@ -240,8 +241,23 @@ pub fn render_with(d: &Design, s: &Skel, look: &Look, pal: &Palette) -> Frame {
     draw(s, look, &d.shape, d.collar.is_some(), pal)
 }
 
-fn draw(s: &Skel, look: &Look, shape: &Shape, collar: bool, pal: &Palette) -> Frame {
+/// The frame a pet is drawn in. A reshaped pet can be taller and longer
+/// than the built-ins, so it gets room on top and at both ends; the
+/// built-ins keep their exact frame (and so their exact pixels).
+fn frame_for(look: &Look, shape: &Shape) -> self::core::FrameSize {
     let fs = frame_size(look);
+    if *shape == Shape::default() {
+        return fs;
+    }
+    let pad = (RESHAPED_PAD * look.r).ceil() as usize;
+    self::core::FrameSize { w: fs.w + 2 * pad, h: fs.h + pad, ox: fs.ox + pad as i32, gy: fs.gy + pad as i32 }
+}
+
+/// Extra room around a reshaped pet, in rig units.
+const RESHAPED_PAD: f64 = 0.45;
+
+fn draw(s: &Skel, look: &Look, shape: &Shape, collar: bool, pal: &Palette) -> Frame {
+    let fs = frame_for(look, shape);
     match s {
         Skel::Dog(s) => {
             let b = dog::body_for(look, shape);
@@ -305,7 +321,7 @@ pub fn mouth(pet: Pet, s: &Skel, look: &Look) -> (f64, f64) {
 }
 
 pub fn mouth_for(d: &Design, s: &Skel, look: &Look) -> (f64, f64) {
-    let fs = frame_size(look);
+    let fs = frame_for(look, &d.shape);
     let p = match (d.pet, s) {
         (Pet::Dog, Skel::Dog(sk)) => dog::mouth(sk, &dog::body_for(look, &d.shape)),
         (Pet::Rabbit, Skel::Rabbit(r)) => rabbit::mouth(r, &rabbit::body_for(look, &d.shape)),
