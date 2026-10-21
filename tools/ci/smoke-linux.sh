@@ -3,7 +3,7 @@
 #   smoke-linux.sh MODE [BINARY]
 # MODE: composited (xcompmgr running) or bare (no compositor: shape fallback).
 # Writes shot-MODE.png and checks it with check_shot.py.
-set -euxo pipefail
+set -euo pipefail
 mode=$1
 bin=${2:-./target/debug/PixelPet}
 here=$(cd "$(dirname "$0")" && pwd)
@@ -14,7 +14,7 @@ export DISPLAY=$disp
 
 Xvfb $disp -screen 0 1920x1080x24 +extension Composite &
 xvfb=$!
-trap 'kill $xvfb ${comp:-} 2>/dev/null || true' EXIT
+trap 'kill $xvfb ${comp:-} ${back:-} 2>/dev/null || true' EXIT
 for _ in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done
 xdpyinfo >/dev/null
 if [ "$mode" = composited ]; then
@@ -23,10 +23,10 @@ if [ "$mode" = composited ]; then
   comp=$!
   sleep 1
 fi
-# xsetroot -solid leaves Xvfb's root black; a root image does show
-convert -size 1920x1080 "xc:#$bg" "PNG24:bg.png"
-display -window root bg.png
-sleep 0.5
+# xsetroot leaves Xvfb's root black: a full-screen window of our colour
+"$(dirname "$bin")/examples/ci_backdrop" $bg &
+back=$!
+sleep 1
 
 # the desktop without the pet, to compare against
 import -window root "PNG24:empty-$mode.png"
