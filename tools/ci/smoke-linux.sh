@@ -23,7 +23,9 @@ if [ "$mode" = composited ]; then
   comp=$!
   sleep 1
 fi
-xsetroot -solid "#$bg"
+# xsetroot -solid leaves Xvfb's root black; a root image does show
+convert -size 1920x1080 "xc:#$bg" "PNG24:bg.png"
+display -window root bg.png
 sleep 0.5
 
 # the desktop without the pet, to compare against

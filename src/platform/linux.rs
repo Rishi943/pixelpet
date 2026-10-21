@@ -27,9 +27,15 @@ pub struct X11 {
 
 impl X11 {
     pub fn open() -> Option<X11> {
-        let (conn, screen) = XCBConnection::connect(None).ok()?;
-        let root = conn.setup().roots.get(screen)?.root;
-        let atom = |n: &str| conn.intern_atom(false, n.as_bytes()).ok()?.reply().ok().map(|r| r.atom);
+        X11::connect().map_err(|e| eprintln!("PixelPet: no X server: {e}")).ok()
+    }
+
+    pub fn connect() -> Result<X11, String> {
+        let (conn, screen) = XCBConnection::connect(None).map_err(|e| e.to_string())?;
+        let root = conn.setup().roots.get(screen).ok_or("no such screen")?.root;
+        let atom = |n: &str| -> Result<u32, String> {
+            Ok(conn.intern_atom(false, n.as_bytes()).map_err(|e| e.to_string())?.reply().map_err(|e| format!("{n}: {e}"))?.atom)
+        };
         let (a_workarea, a_active, a_state, a_fullscreen) = (
             atom("_NET_WORKAREA")?,
             atom("_NET_ACTIVE_WINDOW")?,
@@ -37,7 +43,7 @@ impl X11 {
             atom("_NET_WM_STATE_FULLSCREEN")?,
         );
         let esc = escape_keycode(&conn);
-        Some(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen })
+        Ok(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen })
     }
 
     fn cardinals(&self, win: Window, prop: u32, kind: AtomEnum) -> Option<Vec<u32>> {
@@ -143,7 +149,7 @@ mod tests {
     use super::*;
 
     fn x() -> X11 {
-        X11::open().expect("an X server (run under xvfb-run)")
+        X11::connect().expect("an X server (run under xvfb-run)")
     }
 
     #[test]
