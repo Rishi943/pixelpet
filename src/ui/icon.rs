@@ -62,6 +62,56 @@ pub fn ico() -> Vec<u8> {
     out
 }
 
+/// The icon as PNG bytes (for the macOS .icns and the Linux AppImage).
+/// Deflate "stored" blocks: no compression code, and icons are small.
+pub fn png(size: u32) -> Vec<u8> {
+    let img = image(size);
+    let mut raw = Vec::with_capacity((img.w * 4 + 1) * img.h);
+    for row in img.px.chunks(img.w * 4) {
+        raw.push(0); // filter: none
+        raw.extend_from_slice(row);
+    }
+    let mut z = vec![0x78, 0x01];
+    let mut blocks = raw.chunks(0xffff).peekable();
+    while let Some(c) = blocks.next() {
+        z.push(blocks.peek().is_none() as u8);
+        z.extend_from_slice(&(c.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(!(c.len() as u16)).to_le_bytes());
+        z.extend_from_slice(c);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for &c in &raw {
+        a = (a + c as u32) % 65521;
+        b = (b + a) % 65521;
+    }
+    z.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut ihdr = vec![];
+    ihdr.extend_from_slice(&(img.w as u32).to_be_bytes());
+    ihdr.extend_from_slice(&(img.h as u32).to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit RGBA
+    let mut out = vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]; // the PNG signature
+    for (kind, body) in [(b"IHDR", &ihdr), (b"IDAT", &z), (b"IEND", &vec![])] {
+        out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        let crc = crc32(&out[start..]);
+        out.extend_from_slice(&crc.to_be_bytes());
+    }
+    out
+}
+
+fn crc32(b: &[u8]) -> u32 {
+    let mut c = !0u32;
+    for &x in b {
+        c ^= x as u32;
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+        }
+    }
+    !c
+}
+
 /// One icon image: BITMAPINFOHEADER, BGRA rows bottom-up, then the 1-bit
 /// AND mask (set where transparent).
 fn bmp(img: &Rgba) -> Vec<u8> {

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PixelPet
+Comment=A small pixel pet that lives on your desktop
+Exec=PixelPet
+Icon=pixelpet
+Categories=Utility;
+Terminal=false

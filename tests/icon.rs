@@ -40,3 +40,66 @@ fn icon_shows_the_pet() {
     assert!(opaque > 32 * 32 / 4, "{opaque} opaque px");
     assert!(clear > 32 * 32 / 10, "{clear} clear px");
 }
+
+/// Read back a PNG written with stored (uncompressed) deflate blocks.
+fn decode_stored_png(b: &[u8]) -> (u32, u32, Vec<u8>) {
+    assert_eq!(&b[..8], b"\x89PNG\r\n\x1a\n");
+    let (mut pos, mut idat, mut wh) = (8, Vec::new(), (0, 0));
+    while pos < b.len() {
+        let n = u32::from_be_bytes(b[pos..pos + 4].try_into().unwrap()) as usize;
+        let kind = &b[pos + 4..pos + 8];
+        let body = &b[pos + 8..pos + 8 + n];
+        let crc = u32::from_be_bytes(b[pos + 8 + n..pos + 12 + n].try_into().unwrap());
+        assert_eq!(crc, crc32(&b[pos + 4..pos + 8 + n]), "chunk CRC");
+        if kind == b"IHDR" {
+            wh = (u32::from_be_bytes(body[0..4].try_into().unwrap()), u32::from_be_bytes(body[4..8].try_into().unwrap()));
+            assert_eq!(&body[8..13], &[8, 6, 0, 0, 0], "8-bit RGBA, no interlace");
+        } else if kind == b"IDAT" {
+            idat.extend_from_slice(body);
+        }
+        pos += 12 + n;
+    }
+    // zlib: 2-byte header, stored blocks, adler32
+    let (mut i, mut raw) = (2, Vec::new());
+    loop {
+        let last = idat[i] & 1;
+        assert_eq!(idat[i] & 6, 0, "stored block");
+        let len = u16::from_le_bytes([idat[i + 1], idat[i + 2]]) as usize;
+        raw.extend_from_slice(&idat[i + 5..i + 5 + len]);
+        i += 5 + len;
+        if last == 1 {
+            break;
+        }
+    }
+    let adler = u32::from_be_bytes(idat[i..i + 4].try_into().unwrap());
+    let (mut a, mut s) = (1u32, 0u32);
+    for &c in &raw {
+        a = (a + c as u32) % 65521;
+        s = (s + a) % 65521;
+    }
+    assert_eq!(adler, (s << 16) | a, "adler32");
+    // drop the per-row filter byte (all 0)
+    let stride = wh.0 as usize * 4 + 1;
+    assert!(raw.chunks(stride).all(|r| r[0] == 0));
+    (wh.0, wh.1, raw.chunks(stride).flat_map(|r| r[1..].to_vec()).collect())
+}
+
+fn crc32(b: &[u8]) -> u32 {
+    let mut c = !0u32;
+    for &x in b {
+        c ^= x as u32;
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB88320 ^ (c >> 1) } else { c >> 1 };
+        }
+    }
+    !c
+}
+
+#[test]
+fn png_round_trips_the_icon_image() {
+    for size in [16, 256, 1024] {
+        let (w, h, px) = decode_stored_png(&icon::png(size));
+        assert_eq!((w, h), (size, size));
+        assert_eq!(px, icon::image(size).px, "size {size}");
+    }
+}

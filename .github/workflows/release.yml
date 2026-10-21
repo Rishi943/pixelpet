@@ -1,0 +1,129 @@
+name: release
+
+# A tag v* builds the three downloads, smoke-tests each, and makes a DRAFT
+# GitHub release holding them. Publishing the draft is done by hand.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - name: build (static C runtime: no VCRUNTIME140.dll needed)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: check size and dependencies
+        shell: pwsh
+        run: |
+          $exe = 'target/x86_64-pc-windows-msvc/release/PixelPet.exe'
+          $mb = (Get-Item $exe).Length / 1MB
+          "PixelPet.exe is {0:N2} MB" -f $mb
+          if ($mb -gt 6) { throw "over the 6 MB budget" }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find '**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          $deps = & $dumpbin /dependents $exe | Out-String
+          $deps
+          if ($deps -match 'VCRUNTIME|MSVCP|api-ms-win-crt') { throw "the C runtime is not static" }
+          Copy-Item $exe PixelPet.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: PixelPet.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          lipo -create -output PixelPet-universal \
+            target/x86_64-apple-darwin/release/PixelPet target/aarch64-apple-darwin/release/PixelPet
+          lipo -archs PixelPet-universal | tee archs.txt
+          grep -q x86_64 archs.txt && grep -q arm64 archs.txt
+      - name: package
+        run: bash tools/ci/make-app.sh PixelPet-universal "${GITHUB_REF_NAME#v}"
+      - name: smoke the bundled app
+        run: bash tools/ci/smoke-macos.sh dist/PixelPet.app/Contents/MacOS/PixelPet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: PixelPet.dmg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-mac-shots
+          path: "*.png"
+
+  linux:
+    runs-on: ubuntu-latest
+    # an old glibc, so the AppImage runs on most distros
+    container: debian:bullseye
+    steps:
+      - run: apt-get update && apt-get install -y build-essential curl ca-certificates file
+      - uses: actions/checkout@v4
+      - run: curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: cargo build --release
+      - name: package
+        run: bash tools/ci/make-appimage.sh target/release/PixelPet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: PixelPet-x86_64.AppImage
+
+  linux-smoke:
+    needs: linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xcompmgr imagemagick x11-utils
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --example ci_backdrop
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+      - name: smoke the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          BACKDROP: ./target/debug/examples/ci_backdrop
+        run: |
+          chmod +x PixelPet-x86_64.AppImage
+          bash tools/ci/smoke-linux.sh composited ./PixelPet-x86_64.AppImage
+          bash tools/ci/smoke-linux.sh bare ./PixelPet-x86_64.AppImage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-linux-shots
+          path: "*.png"
+
+  release:
+    needs: [windows, macos, linux-smoke]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "PixelPet $GITHUB_REF_NAME" \
+            --notes-file docs/release-notes.md \
+            out/windows/PixelPet.exe out/macos/PixelPet.dmg out/linux/PixelPet-x86_64.AppImage

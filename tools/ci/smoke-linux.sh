@@ -24,7 +24,7 @@ if [ "$mode" = composited ]; then
   sleep 1
 fi
 # xsetroot leaves Xvfb's root black: a full-screen window of our colour
-"$(dirname "$bin")/examples/ci_backdrop" $bg &
+"${BACKDROP:-$(dirname "$bin")/examples/ci_backdrop}" $bg &
 back=$!
 sleep 1
 
