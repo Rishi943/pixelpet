@@ -155,6 +155,8 @@ pub mod pure;
 mod windows;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 
 /// Held for as long as this is the one running PixelPet.
 pub struct InstanceGuard {
@@ -194,7 +196,11 @@ pub fn native() -> Box<dyn Platform> {
             None => Box::new(Stub),
         }
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(macos::Mac)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Box::new(Stub)
     }

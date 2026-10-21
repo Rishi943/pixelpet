@@ -35,7 +35,7 @@ features = ["allow-unsafe-code", "dl-libxcb", "image", "shape", "randr", "screen
 # the macOS crates winit already uses
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.5.3"
-objc2-foundation = { version = "=0.2.2", features = ["NSString"] }
+objc2-foundation = { version = "=0.2.2", features = ["NSString", "NSGeometry"] }
 core-graphics = "=0.23.2"
 core-foundation = "=0.9.4"
 

@@ -23,5 +23,11 @@ screencapture -x menu-mac.png
 wait $pet
 echo "PixelPet (menu) exited with $?"
 
+# control: can screencapture see another app's window here at all?
+open -a Calculator || true
+sleep 3
+screencapture -x control-mac.png || true
+osascript -e 'quit app "Calculator"' || true
+
 # screencapture writes 8-bit RGBA PNGs at the display's pixel size
 python3 "$here/check_shot.py" shot-mac.png --empty empty-mac.png
