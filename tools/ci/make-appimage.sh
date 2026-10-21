@@ -15,8 +15,9 @@ cat > AppDir/AppRun <<'RUN'
 exec "$(dirname "$(readlink -f "$0")")/usr/bin/PixelPet" "$@"
 RUN
 chmod +x AppDir/AppRun AppDir/usr/bin/PixelPet
-# appimagetool release 13 (the last numbered one), run without FUSE
-curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage
+# appimagetool 1.9.1 (its static runtime needs no libfuse2 on the user's
+# machine), itself run without FUSE
+curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
 chmod +x appimagetool
 ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir PixelPet-x86_64.AppImage
 echo "made PixelPet-x86_64.AppImage"
