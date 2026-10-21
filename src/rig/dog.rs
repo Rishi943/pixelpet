@@ -49,6 +49,21 @@ pub fn body(look: &Look) -> Body {
     }
 }
 
+/// The look's body with a pet's shape multipliers applied (all 1 = Alex).
+pub fn body_for(look: &Look, s: &super::design::Shape) -> Body {
+    let b = body(look);
+    Body {
+        leg_len: b.leg_len * s.legs,
+        body_len: b.body_len * s.body,
+        head: b.head * s.head,
+        ear: b.ear * s.ears,
+        muzzle: b.muzzle * s.muzzle,
+        tail: b.tail * s.tail,
+        fluff: b.fluff * s.fluff,
+        limb: b.limb,
+    }
+}
+
 // ---------------------------------------------------------------- skeleton
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -343,26 +358,29 @@ pub fn walk_speed(b: &Body) -> f64 {
 }
 
 pub fn pose(anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
-    let b = body(look);
+    pose_with(anim, &body(look), t, toy)
+}
+
+pub fn pose_with(anim: Anim, b: &Body, t: f64, toy: Option<Toy>) -> Skel {
     match anim {
-        Anim::Stand => stand(&b, t, toy),
-        Anim::Walk => walk(&b, t, toy),
-        Anim::Sit => sit_skel(&b, t, toy, false, 0.0),
-        Anim::Tilt => sit_skel(&b, t, toy, true, 0.0),
-        Anim::Hop => hop(&b, t, toy),
-        Anim::Sleep | Anim::Flop => sleep(&b, t),
-        Anim::Run => run(&b, t, toy),
-        Anim::Carry => carry(&b, t, toy),
-        Anim::Eat => eat(&b, t),
-        Anim::Wag => wag(&b, t),
-        Anim::Lean => lean(&b, t),
-        Anim::Tug => tug(&b, t),
-        Anim::Stretch => stretch(&b, t),
-        Anim::Watch => watch(&b, t),
-        Anim::RunAway => run_away(&b, t),
-        Anim::RunBack => run_back(&b, t, None, RUN_PERIOD),
-        Anim::CarryBack => run_back(&b, t, toy, CARRY_PERIOD),
-        Anim::Nudge => walk(&b, t, toy),
+        Anim::Stand => stand(b, t, toy),
+        Anim::Walk => walk(b, t, toy),
+        Anim::Sit => sit_skel(b, t, toy, false, 0.0),
+        Anim::Tilt => sit_skel(b, t, toy, true, 0.0),
+        Anim::Hop => hop(b, t, toy),
+        Anim::Sleep | Anim::Flop => sleep(b, t),
+        Anim::Run => run(b, t, toy),
+        Anim::Carry => carry(b, t, toy),
+        Anim::Eat => eat(b, t),
+        Anim::Wag => wag(b, t),
+        Anim::Lean => lean(b, t),
+        Anim::Tug => tug(b, t),
+        Anim::Stretch => stretch(b, t),
+        Anim::Watch => watch(b, t),
+        Anim::RunAway => run_away(b, t),
+        Anim::RunBack => run_back(b, t, None, RUN_PERIOD),
+        Anim::CarryBack => run_back(b, t, toy, CARRY_PERIOD),
+        Anim::Nudge => walk(b, t, toy),
     }
 }
 

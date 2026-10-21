@@ -39,6 +39,12 @@ pub fn body(look: &Look) -> Body {
     }
 }
 
+/// The look's body with a pet's shape multipliers applied (all 1 = Alex the bun).
+pub fn body_for(look: &Look, s: &super::design::Shape) -> Body {
+    let b = body(look);
+    Body { head: b.head * s.head, ear: b.ear * s.ears, fluff: b.fluff * s.fluff, foot: b.foot * s.feet, limb: b.limb }
+}
+
 // ---------------------------------------------------------------- skeleton
 
 /// All explicit points; poses are keyframes blended with `lerp`.
@@ -210,8 +216,11 @@ pub fn walk_move(p: f64) -> f64 {
 }
 
 pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
-    let b = body(look);
-    let l = loaf(&b);
+    pose_with(anim, &body(look), t)
+}
+
+pub fn pose_with(anim: Anim, b: &Body, t: f64) -> Skel {
+    let l = loaf(b);
     match anim {
         // loaf: nose going, ears turning now and then
         Anim::Stand => {
@@ -469,8 +478,8 @@ pub fn pose(anim: Anim, look: &Look, t: f64) -> Skel {
             }
         }
         // not rabbit anims: the poses they fall back to
-        Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack => pose(Anim::Walk, look, t),
-        Anim::Wag | Anim::Lean => pose(Anim::Stand, look, t),
+        Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack => pose_with(Anim::Walk, b, t),
+        Anim::Wag | Anim::Lean => pose_with(Anim::Stand, b, t),
     }
 }
 

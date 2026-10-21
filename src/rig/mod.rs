@@ -3,11 +3,13 @@
 //! them by `tests/parity.rs`.
 
 pub mod core;
+pub mod design;
 pub mod dog;
 pub mod props;
 pub mod rabbit;
 
 pub use self::core::Look;
+pub use self::design::{Design, Shape};
 pub use self::props::Food;
 use self::core::{frame_size, raster, to_rgba, toy_shape, Palette, ToyKind};
 use std::sync::OnceLock;
@@ -184,9 +186,14 @@ pub enum Skel {
 }
 
 pub fn pose(pet: Pet, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
-    match pet {
-        Pet::Dog => Skel::Dog(dog::pose(anim, look, t, toy)),
-        Pet::Rabbit => Skel::Rabbit(rabbit::Skel { toy, ..rabbit::pose(anim, look, t) }),
+    pose_for(&Design::builtin(pet), anim, look, t, toy)
+}
+
+/// A pet's skeleton for `anim` at `t`, with its own proportions.
+pub fn pose_for(d: &Design, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
+    match d.pet {
+        Pet::Dog => Skel::Dog(dog::pose_with(anim, &dog::body_for(look, &d.shape), t, toy)),
+        Pet::Rabbit => Skel::Rabbit(rabbit::Skel { toy, ..rabbit::pose_with(anim, &rabbit::body_for(look, &d.shape), t) }),
     }
 }
 
@@ -210,10 +217,34 @@ fn bun_palette() -> &'static Palette {
 }
 
 pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
+    let pal = match s {
+        Skel::Dog(_) => alex_palette(),
+        Skel::Rabbit(_) => bun_palette(),
+    };
+    draw(s, look, &Default::default(), collar, pal)
+}
+
+/// A pet's frame: its proportions, its coat and its collar (if any).
+/// Callers drawing many frames can compile `d.palette()` once and use
+/// `render_with`.
+pub fn render_for(d: &Design, s: &Skel, look: &Look) -> Frame {
+    if d.coat.is_empty() && d.collar.is_none() {
+        // the built-in coats, compiled once: no re-shading drift
+        let pal = if d.pet == Pet::Dog { alex_palette() } else { bun_palette() };
+        return draw(s, look, &d.shape, false, pal);
+    }
+    render_with(d, s, look, &d.palette())
+}
+
+pub fn render_with(d: &Design, s: &Skel, look: &Look, pal: &Palette) -> Frame {
+    draw(s, look, &d.shape, d.collar.is_some(), pal)
+}
+
+fn draw(s: &Skel, look: &Look, shape: &Shape, collar: bool, pal: &Palette) -> Frame {
     let fs = frame_size(look);
     match s {
         Skel::Dog(s) => {
-            let b = dog::body(look);
+            let b = dog::body_for(look, shape);
             let mut list = dog::shapes(s, &b, look);
             if collar {
                 for sh in &mut list {
@@ -222,16 +253,14 @@ pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
                     }
                 }
             }
-            let pal = alex_palette();
             let mut rs = raster(&list, look, fs, dog::paint);
             let mut out = to_rgba(&mut rs, look, fs, pal);
             dog::eyes(&mut out, s, &b, look, fs, pal);
             Frame { w: fs.w, h: fs.h, ox: fs.ox, gy: fs.gy, rgba: out }
         }
         Skel::Rabbit(s) => {
-            let b = rabbit::body(look);
+            let b = rabbit::body_for(look, shape);
             let list = rabbit::shapes(s, &b, look);
-            let pal = bun_palette();
             let mut rs = raster(&list, look, fs, rabbit::paint);
             let mut out = to_rgba(&mut rs, look, fs, pal);
             rabbit::eyes(&mut out, s, &b, look, fs, pal);
@@ -272,10 +301,14 @@ pub fn with_eyes_closed(s: Skel) -> Skel {
 /// The mouth in frame pixels (the space of `Frame.ox`/`gy`, before zoom
 /// and mirroring), where a rope or food meets the pet.
 pub fn mouth(pet: Pet, s: &Skel, look: &Look) -> (f64, f64) {
+    mouth_for(&Design::builtin(pet), s, look)
+}
+
+pub fn mouth_for(d: &Design, s: &Skel, look: &Look) -> (f64, f64) {
     let fs = frame_size(look);
-    let p = match (pet, s) {
-        (Pet::Dog, Skel::Dog(d)) => dog::mouth(d, &dog::body(look)),
-        (Pet::Rabbit, Skel::Rabbit(r)) => rabbit::mouth(r, &rabbit::body(look)),
+    let p = match (d.pet, s) {
+        (Pet::Dog, Skel::Dog(sk)) => dog::mouth(sk, &dog::body_for(look, &d.shape)),
+        (Pet::Rabbit, Skel::Rabbit(r)) => rabbit::mouth(r, &rabbit::body_for(look, &d.shape)),
         _ => panic!("skeleton of the other species"),
     };
     (fs.ox as f64 + p[0] * look.r, fs.gy as f64 - p[1] * look.r)
@@ -291,10 +324,15 @@ pub fn period(pet: Pet, anim: Anim) -> f64 {
 
 /// Rig units per second while this anim plays; 0 when it doesn't travel.
 pub fn speed(pet: Pet, look: &Look, anim: Anim) -> f64 {
-    match (pet, anim) {
-        (Pet::Dog, Anim::Walk) => dog::walk_speed(&dog::body(look)),
-        (Pet::Dog, Anim::Run | Anim::RunAway | Anim::RunBack) => dog::RUN_SPEEDUP * dog::walk_speed(&dog::body(look)),
-        (Pet::Dog, Anim::Carry | Anim::CarryBack) => dog::CARRY_SPEEDUP * dog::walk_speed(&dog::body(look)),
+    speed_for(&Design::builtin(pet), look, anim)
+}
+
+pub fn speed_for(d: &Design, look: &Look, anim: Anim) -> f64 {
+    let walk = || dog::walk_speed(&dog::body_for(look, &d.shape));
+    match (d.pet, anim) {
+        (Pet::Dog, Anim::Walk) => walk(),
+        (Pet::Dog, Anim::Run | Anim::RunAway | Anim::RunBack) => dog::RUN_SPEEDUP * walk(),
+        (Pet::Dog, Anim::Carry | Anim::CarryBack) => dog::CARRY_SPEEDUP * walk(),
         (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack) => rabbit::WALK_SPEED,
         (Pet::Rabbit, Anim::Nudge) => 0.6 * rabbit::WALK_SPEED,
         _ => 0.0,
