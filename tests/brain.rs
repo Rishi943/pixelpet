@@ -333,6 +333,31 @@ fn drag_lifts_then_falls() {
     assert_eq!(sim.last.x, (x0 + 100) as f64);
 }
 
+/// XWayland: the pointer goes over a native Wayland window mid-drag, the
+/// cursor reads None and the release may never come. The pet must land.
+#[test]
+fn cursor_vanishing_mid_drag_drops_the_pet_on_the_ground() {
+    let mut sim = Sim::new(Pet::Dog);
+    sim.step();
+    let x0 = sim.last.x as i32;
+    let ground = WORK.bottom();
+    sim.over_pet = true;
+    sim.cursor = Some((x0, ground - 20));
+    sim.step_with(DT, Mouse::Down(x0, ground - 20));
+    sim.cursor = Some((x0 + 100, ground - 200));
+    assert!(sim.step_with(DT, Mouse::Move(x0 + 100, ground - 200)).lift > 0.0);
+    sim.over_pet = false;
+    sim.cursor = None;
+    sim.run(1.0, |_, _| {});
+    assert_eq!(sim.last.lift, 0.0, "still held up with no cursor");
+    assert_eq!(sim.last.x, (x0 + 100) as f64, "lands where it was let go");
+    // and a later click elsewhere is not a drag of the pet
+    sim.cursor = Some((10, 10));
+    sim.step_with(DT, Mouse::Down(10, 10));
+    let sh = sim.step_with(DT, Mouse::Move(300, 300));
+    assert_eq!(sh.lift, 0.0);
+}
+
 #[test]
 fn fullscreen_hide_and_stay() {
     let mut sim = Sim::new(Pet::Dog);

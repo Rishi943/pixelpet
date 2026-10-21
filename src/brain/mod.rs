@@ -408,6 +408,14 @@ impl Brain {
             }
             _ => {}
         }
+        // the cursor gone mid-press (XWayland: over a native Wayland window)
+        // is a release; that release may never be reported
+        if inp.cursor.is_none() {
+            self.down = None;
+            if self.mode == Mode::Drag {
+                self.mode = Mode::Fall { v: 0.0 };
+            }
+        }
 
         let idle = inp.idle;
         // idle is polled, so input between polls shows up as idle going down
