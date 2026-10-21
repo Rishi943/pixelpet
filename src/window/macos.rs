@@ -59,11 +59,17 @@ impl PetWindow {
             let _: () = msg_send![ns_window, setOpaque: Bool::NO];
             let _: () = msg_send![ns_window, setBackgroundColor: clear];
             let _: () = msg_send![ns_window, setCollectionBehavior: BEHAVIOUR];
-            let _: () = msg_send![view, setWantsLayer: Bool::YES];
-            let layer: *mut AnyObject = msg_send![view, layer];
+            // a layer-HOSTING view: our own layer, set before wantsLayer, so
+            // AppKit never redraws it. A layer-backed view's layer is redrawn
+            // when the window gains focus, which blanked the menu (drawn once).
+            let layer: *mut AnyObject = msg_send![class!(CALayer), layer];
             if layer.is_null() {
-                return Err("the view has no layer".into());
+                return Err("no CALayer".into());
             }
+            let _: () = msg_send![view, setLayer: layer];
+            let _: () = msg_send![view, setWantsLayer: Bool::YES];
+            // follow the view's size: kCALayerWidthSizable | kCALayerHeightSizable
+            let _: () = msg_send![layer, setAutoresizingMask: 2u32 | 16u32];
             // hard pixels: never smooth when the layer is drawn at a scale
             let nearest = NSString::from_str("nearest");
             let _: () = msg_send![layer, setMagnificationFilter: &*nearest];
