@@ -4,7 +4,7 @@ PixelPet is a small pixel pet that lives on your desktop. It walks along the bot
 
 - **Windows:** `PixelPet.exe`. Run it from anywhere.
 - **macOS (Intel and Apple Silicon):** `PixelPet.dmg`. Open it and drag PixelPet to Applications.
-- **Linux:** `PixelPet-x86_64.AppImage`. Make it runnable (`chmod +x PixelPet-x86_64.AppImage`), then run it.
+- **Linux:** `PixelPet-x86_64.AppImage`. Make it runnable (`chmod +x PixelPet-x86_64.AppImage`), then run it. It needs an X11 desktop or a Wayland one with XWayland, and the X keyboard library every desktop has (`libxkbcommon-x11`).
 
 **The first launch shows a warning, once**
 
