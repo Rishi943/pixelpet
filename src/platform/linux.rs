@@ -35,7 +35,7 @@ impl X11 {
     }
 
     pub fn connect() -> Result<X11, String> {
-        let (conn, screen) = XCBConnection::connect(None).map_err(|e| e.to_string())?;
+        let (conn, screen) = connect_x()?;
         let root = conn.setup().roots.get(screen).ok_or("no such screen")?.root;
         let atom = |n: &str| -> Result<u32, String> {
             Ok(conn.intern_atom(false, n.as_bytes()).map_err(|e| e.to_string())?.reply().map_err(|e| format!("{n}: {e}"))?.atom)
@@ -61,6 +61,23 @@ impl X11 {
         let m = r.monitors.iter().find(|m| m.primary).or_else(|| r.monitors.first())?;
         Some(Rect { x: m.x as i32, y: m.y as i32, w: m.width as i32, h: m.height as i32 })
     }
+}
+
+/// A connection to the X server, tried a few times: connecting can fail
+/// now and then while another thread connects too (seen on CI), and an
+/// autostarted PixelPet can race the desktop's own start.
+pub(crate) fn connect_x() -> Result<(XCBConnection, usize), String> {
+    let mut last = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        match XCBConnection::connect(None) {
+            Ok(c) => return Ok(c),
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(last)
 }
 
 fn escape_keycode(conn: &XCBConnection) -> Option<u8> {

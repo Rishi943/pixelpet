@@ -91,7 +91,7 @@ impl PetWindow {
             RawWindowHandle::Xcb(h) => h.window.get(),
             _ => return Err("not an X11 window".into()),
         };
-        let (conn, screen) = XCBConnection::connect(None).map_err(|e| e.to_string())?;
+        let (conn, screen) = crate::platform::connect_x()?;
         conn.extension_information(shape::X11_EXTENSION_NAME)
             .map_err(|e| e.to_string())?
             .ok_or("the X server has no SHAPE extension")?;
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn state_is_written_again_after_the_wm_drops_it() {
-        let (conn, screen) = XCBConnection::connect(None).expect("an X server (run under xvfb-run)");
+        let (conn, screen) = crate::platform::connect_x().expect("an X server (run under xvfb-run)");
         let s = &conn.setup().roots[screen];
         let w = conn.generate_id().unwrap();
         conn.create_window(0, w, s.root, 0, 0, 10, 10, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new()).unwrap();

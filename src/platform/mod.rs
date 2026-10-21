@@ -155,6 +155,8 @@ pub mod pure;
 mod windows;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::connect_x;
 #[cfg(target_os = "macos")]
 mod macos;
 
