@@ -2,13 +2,19 @@
 //! Layout is in art pixels; `draw` and `hit` take the pet's zoom as `scale`.
 
 use super::font;
-use crate::pets::{ALEX_ID, BUN_ID};
+use crate::pets::PetRecord;
 use crate::settings::{FullscreenMode, Settings, Size};
 use crate::window::Rgba;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    SetPet(&'static str),
+    /// The `<` and `>` beside the pet's name: the previous or next saved pet.
+    PrevPet,
+    NextPet,
+    /// The pet's name: open the maker on it.
+    EditPet,
+    /// "Make a pet...": open the maker on a new pet.
+    MakePet,
     SetSize(Size),
     SetOpacity(u8),
     SetFullscreen(FullscreenMode),
@@ -32,7 +38,7 @@ pub struct Row {
 /// the app's job; this only changes fields.
 pub fn apply(a: &Action, s: &mut Settings) {
     match *a {
-        Action::SetPet(p) => s.pet = p.to_string(),
+        Action::PrevPet | Action::NextPet | Action::EditPet | Action::MakePet => {}
         Action::SetSize(z) => s.size = z,
         Action::SetOpacity(o) => s.opacity = o,
         Action::SetFullscreen(f) => s.fullscreen = f,
@@ -63,6 +69,8 @@ struct Line {
     /// Options start right after this line's own heading, not in the
     /// shared column (so a long heading doesn't shift every line).
     own_column: bool,
+    /// Cells sit close together with no `|` between them (the pet arrows).
+    tight: bool,
 }
 
 /// A laid-out cell: row index and rect `(x, y, w, h)` in art px.
@@ -86,22 +94,23 @@ pub struct Menu {
 const STEPS: [u8; 4] = [25, 50, 75, 100];
 
 impl Menu {
-    pub fn new(s: &Settings) -> Menu {
-        Menu::build(s, false, None)
+    /// The menu for these settings, showing `pet_name` as the pet on screen.
+    pub fn new(s: &Settings, pet_name: &str) -> Menu {
+        Menu::build(s, pet_name, false, None)
     }
 
     /// The menu with its last line asking "Quit PixelPet? Yes | No".
-    pub fn confirming_quit(s: &Settings) -> Menu {
-        Menu::build(s, true, None)
+    pub fn confirming_quit(s: &Settings, pet_name: &str) -> Menu {
+        Menu::build(s, pet_name, true, None)
     }
 
     /// The menu with a line under "Launch on startup" saying why it could
     /// not be turned on.
-    pub fn with_note(s: &Settings, note: &str) -> Menu {
-        Menu::build(s, false, Some(note))
+    pub fn with_note(s: &Settings, pet_name: &str, note: &str) -> Menu {
+        Menu::build(s, pet_name, false, Some(note))
     }
 
-    fn build(s: &Settings, confirm_quit: bool, note: Option<&str>) -> Menu {
+    fn build(s: &Settings, pet_name: &str, confirm_quit: bool, note: Option<&str>) -> Menu {
         let mut rows: Vec<Row> = vec![];
         let mut lines: Vec<Line> = vec![];
         let mut line = |rows: &mut Vec<Row>, heading: Option<&str>, opts: Vec<(String, Action, bool)>| {
@@ -114,15 +123,12 @@ impl Menu {
                 rows.push(Row { label, action: Some(action), checked });
                 cells.push(rows.len() - 1);
             }
-            lines.push(Line { heading: h, cells, own_column: false });
+            lines.push(Line { heading: h, cells, own_column: false, tight: false });
         };
         line(
             &mut rows,
             Some("Pet:"),
-            vec![
-                ("Alex".into(), Action::SetPet(ALEX_ID), s.pet == ALEX_ID),
-                ("Alex the bun".into(), Action::SetPet(BUN_ID), s.pet == BUN_ID),
-            ],
+            vec![("<".into(), Action::PrevPet, false), (pet_name.to_string(), Action::EditPet, true), (">".into(), Action::NextPet, false)],
         );
         line(
             &mut rows,
@@ -155,6 +161,7 @@ impl Menu {
         if let Some(n) = note {
             line(&mut rows, Some(n), vec![]);
         }
+        line(&mut rows, None, vec![("Make a pet...".into(), Action::MakePet, false)]);
         if confirm_quit {
             line(
                 &mut rows,
@@ -167,9 +174,10 @@ impl Menu {
         }
         if note.is_some() {
             // the note sits on its own, so its length doesn't push the options right
-            let i = lines.len() - 2;
+            let i = lines.len() - 3;
             lines[i].own_column = true;
         }
+        lines[0].tight = true; // Pet: < name >
 
         // layout: headings in one column, options after the widest heading
         let tw = |r: usize| font::text_width(&rows[r].label) as i32;
@@ -188,7 +196,9 @@ impl Menu {
                 None => INSET - CELL_PAD_X,
             };
             for (k, &r) in l.cells.iter().enumerate() {
-                if k > 0 {
+                if k > 0 && l.tight {
+                    x += 1;
+                } else if k > 0 {
                     seps.push((x, y));
                     x += SEP;
                 }
@@ -214,10 +224,11 @@ impl Menu {
             .iter()
             .map(|l| {
                 let opts: Vec<&str> = l.cells.iter().map(|&r| self.rows[r].label.as_str()).collect();
+                let opts = opts.join(if l.tight { " " } else { " | " });
                 match l.heading {
                     Some(h) if opts.is_empty() => self.rows[h].label.clone(),
-                    Some(h) => format!("{} {}", self.rows[h].label, opts.join(" | ")),
-                    None => opts.join(" | "),
+                    Some(h) => format!("{} {}", self.rows[h].label, opts),
+                    None => opts,
                 }
             })
             .collect()
@@ -308,4 +319,15 @@ impl Menu {
         }
         img
     }
+}
+
+/// The saved pet `dir` places from `current` (1 = next, -1 = previous),
+/// wrapping round both ends. An unknown `current` counts as the first pet.
+pub fn step_pet(all: &[PetRecord], current: &str, dir: i32) -> String {
+    if all.is_empty() {
+        return current.to_string();
+    }
+    let i = all.iter().position(|r| r.id == current).unwrap_or(0) as i32;
+    let n = all.len() as i32;
+    all[(i + dir).rem_euclid(n) as usize].id.clone()
 }

@@ -46,8 +46,8 @@ fn main() {
     }
     let s = Settings::default();
     let menu = match args.first() {
-        Some(note) => Menu::with_note(&s, note),
-        None => Menu::new(&s),
+        Some(note) => Menu::with_note(&s, "Alex", note),
+        None => Menu::new(&s, "Alex"),
     };
     write(&menu.draw(3), "menu-preview.ppm");
 }

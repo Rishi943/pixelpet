@@ -3,6 +3,7 @@
 
 use crate::brain::{Brain, Inputs, Mouse, Show};
 use crate::ui::bubble::Bubble;
+use crate::pets::{self, PetRecord};
 use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
@@ -98,6 +99,9 @@ pub struct App {
     drag_trail: VecDeque<(f64, i32)>,
     /// the OS let us move the cursor (tug); false after the first refusal
     can_warp: bool,
+    /// every saved pet (the built-ins first), and where they are kept
+    pets: Vec<PetRecord>,
+    pets_dir: PathBuf,
 }
 
 fn seed() -> u64 {
@@ -118,8 +122,11 @@ impl App {
             let _ = platform.set_autostart(settings.autostart.then_some(exe.as_path()));
         }
         let look = rig::look("classic");
-        let pet = crate::pets::find(&crate::pets::load_all(&crate::pets::pets_dir(&settings_path)), &settings.pet).design.pet;
-        let mut brain = Brain::new(pet, seed(), 0.0, platform.work_area());
+        let pets_dir = pets::pets_dir(&settings_path);
+        let all = pets::load_all(&pets_dir);
+        let design = pets::find(&all, &settings.pet).design.clone();
+        let pet = design.pet;
+        let mut brain = Brain::with_design(design.clone(), seed(), 0.0, platform.work_area());
         let pin = std::env::var("PIXELPET_PIN").ok().and_then(|v| Anim::from_name(v.trim()));
         brain.pin(pin);
         let exit_after = std::env::var("PIXELPET_EXIT_AFTER").ok().and_then(|v| v.trim().parse().ok());
@@ -135,8 +142,10 @@ impl App {
             win: None,
             menu: None,
             brain,
-            view: View::new(pet, look),
+            view: View::with_design(design, look),
             bubble: Bubble::new(pet),
+            pets: all,
+            pets_dir,
             bubble_open: None,
             cancel_pending: false,
             esc_was_down: false,
@@ -169,6 +178,26 @@ impl App {
 
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
+    }
+
+    /// The pet `settings.pet` names (Alex if it's gone).
+    fn current_pet(&self) -> &PetRecord {
+        pets::find(&self.pets, &self.settings.pet)
+    }
+
+    /// Put the current pet on screen in place of the old one.
+    fn swap_pet(&mut self) {
+        let design = self.current_pet().design.clone();
+        let pet = design.pet;
+        let mut brain = Brain::with_design(design.clone(), seed(), self.now(), self.platform.work_area());
+        brain.place(self.last_x);
+        brain.pin(self.pin);
+        self.brain = brain;
+        self.view = View::with_design(design, self.look);
+        // the bubble's Play and Feed pages are per pet
+        self.bubble = Bubble::new(pet);
+        self.bubble_open = None;
+        self.presented = None;
     }
 
     /// Whether the cursor is on the pet in the scene last shown.
@@ -450,7 +479,7 @@ impl App {
             }
         };
         let work = self.platform.work_area();
-        let menu = Menu::new(&self.settings);
+        let menu = Menu::new(&self.settings, &self.current_pet().name);
         let scale = self.settings.size.zoom();
         let (left, top) = self.menu_place(&menu, scale, work);
         self.menu = Some(MenuOpen { win, menu, scale, left, top, last_over: self.now(), had_focus: false });
@@ -515,10 +544,11 @@ impl App {
             return;
         }
         if matches!(action, Action::AskQuit | Action::CancelQuit) {
+            let name = self.current_pet().name.clone();
             let menu = if action == Action::AskQuit {
-                Menu::confirming_quit(&self.settings)
+                Menu::confirming_quit(&self.settings, &name)
             } else {
-                Menu::new(&self.settings)
+                Menu::new(&self.settings, &name)
             };
             if let Some(scale) = self.menu.as_ref().map(|m| m.scale) {
                 let (left, top) = self.menu_place(&menu, scale, self.platform.work_area());
@@ -530,6 +560,11 @@ impl App {
         }
         let old_pet = self.settings.pet.clone();
         menu::apply(&action, &mut self.settings);
+        match action {
+            Action::PrevPet => self.settings.pet = menu::step_pet(&self.pets, &old_pet, -1),
+            Action::NextPet => self.settings.pet = menu::step_pet(&self.pets, &old_pet, 1),
+            _ => {}
+        }
         let mut note = None;
         if action == Action::ToggleAutostart {
             let target = self.settings.autostart.then_some(self.exe.as_path());
@@ -543,21 +578,13 @@ impl App {
             eprintln!("PixelPet: could not save settings: {e}");
         }
         if self.settings.pet != old_pet {
-            let pet = crate::pets::find(&crate::pets::load_all(&crate::pets::pets_dir(&self.settings_path)), &self.settings.pet).design.pet;
-            let mut brain = Brain::new(pet, seed(), self.now(), self.platform.work_area());
-            brain.place(self.last_x);
-            brain.pin(self.pin);
-            self.brain = brain;
-            self.view = View::new(pet, self.look);
-            // the bubble's Play and Feed pages are per pet
-            self.bubble = Bubble::new(pet);
-            self.bubble_open = None;
-            self.presented = None;
+            self.swap_pet();
         }
+        let name = self.current_pet().name.clone();
         if let Some(m) = self.menu.as_mut() {
             m.menu = match &note {
-                Some(n) => Menu::with_note(&self.settings, n),
-                None => Menu::new(&self.settings),
+                Some(n) => Menu::with_note(&self.settings, &name, n),
+                None => Menu::new(&self.settings, &name),
             };
             m.scale = self.settings.size.zoom();
         }
