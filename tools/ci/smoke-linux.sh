@@ -34,6 +34,9 @@ python3 "$here/check_shot.py" "empty-$mode.png" --uniform
 
 # settings in a temp folder, so the run never touches a real config
 export XDG_CONFIG_HOME=$(mktemp -d)
+# not a first launch: a first launch opens the pet maker over the desktop
+mkdir -p "$XDG_CONFIG_HOME/pixelpet"
+echo "pet = alex" > "$XDG_CONFIG_HOME/pixelpet/settings.txt"
 PIXELPET_PIN=stand PIXELPET_EXIT_AFTER=8 "$bin" &
 pet=$!
 sleep 5
@@ -41,3 +44,14 @@ import -window root "PNG24:shot-$mode.png"
 wait $pet
 echo "PixelPet exited with $?"
 python3 "$here/check_shot.py" "shot-$mode.png" --empty "empty-$mode.png"
+
+# a first launch, for a person to look at: the pet maker opens by itself
+if [ "$mode" = composited ]; then
+  export XDG_CONFIG_HOME=$(mktemp -d)
+  PIXELPET_EXIT_AFTER=6 "$bin" &
+  pet=$!
+  sleep 4
+  import -window root "PNG24:maker-linux.png"
+  wait $pet
+  echo "PixelPet (first launch) exited with $?"
+fi

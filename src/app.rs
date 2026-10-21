@@ -8,6 +8,7 @@ use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
 use crate::scene::{Hit, Part, Scene, Sprite};
+use crate::ui::maker::{self, Maker, MakerKey, Outcome};
 use crate::ui::menu::{self, Action, Menu};
 use crate::view::View;
 use crate::window::PetWindow;
@@ -41,6 +42,22 @@ struct BubbleOpen {
     top: i32,
     w: i32,
     h: i32,
+}
+
+/// The open pet maker.
+struct MakerOpen {
+    win: PetWindow,
+    maker: Maker,
+    scale: u32,
+    left: i32,
+    top: i32,
+    /// the cursor in the window (physical px), and whether the button is held
+    at: (i32, i32),
+    held: bool,
+    /// when the preview pet's current anim started, and the last redraw
+    anim_start: f64,
+    anim: Anim,
+    drawn_at: f64,
 }
 
 /// The open right-click menu.
@@ -102,6 +119,9 @@ pub struct App {
     /// every saved pet (the built-ins first), and where they are kept
     pets: Vec<PetRecord>,
     pets_dir: PathBuf,
+    maker: Option<MakerOpen>,
+    /// first launch: open the maker once the pet is on screen
+    open_maker_at_start: bool,
 }
 
 fn seed() -> u64 {
@@ -122,6 +142,7 @@ impl App {
             let _ = platform.set_autostart(settings.autostart.then_some(exe.as_path()));
         }
         let look = rig::look("classic");
+        let first_launch = settings::first_launch(&settings_path);
         let pets_dir = pets::pets_dir(&settings_path);
         let all = pets::load_all(&pets_dir);
         let design = pets::find(&all, &settings.pet).design.clone();
@@ -146,6 +167,8 @@ impl App {
             bubble: Bubble::new(pet),
             pets: all,
             pets_dir,
+            maker: None,
+            open_maker_at_start: first_launch,
             bubble_open: None,
             cancel_pending: false,
             esc_was_down: false,
@@ -225,6 +248,22 @@ impl App {
             match a.as_str() {
                 "menu" => self.open_menu(el, false),
                 "menu-focus" => self.open_menu(el, true),
+                "maker" => self.open_maker(el, None),
+                click if click.starts_with("maker-click:") => {
+                    let what = &click["maker-click:".len()..];
+                    let hit = self.maker.as_ref().and_then(|m| m.maker.target(what));
+                    if let (Some((x, y, w, h)), Some(m)) = (hit, self.maker.as_mut()) {
+                        let o = m.maker.click(x + w / 2, y + h / 2);
+                        self.maker_outcome(o);
+                    }
+                }
+                "maker-next" => {
+                    if let Some(m) = self.maker.as_mut() {
+                        if let Some((x, y, w, h)) = m.maker.target("Next >") {
+                            m.maker.click(x + w / 2, y + h / 2);
+                        }
+                    }
+                }
                 "close" => self.close_menu(),
                 "size=S" => self.act(Action::SetSize(crate::settings::Size::S), el),
                 "size=M" => self.act(Action::SetSize(crate::settings::Size::M), el),
@@ -303,6 +342,15 @@ impl App {
             self.open_menu_at_start = false;
             self.open_menu(el, false);
         }
+        if self.open_maker_at_start && self.placed.is_some() {
+            self.open_maker_at_start = false;
+            // write the settings now, so the maker opens by itself only once
+            if let Err(e) = settings::save(&self.settings_path, &self.settings) {
+                eprintln!("PixelPet: could not save settings: {e}");
+            }
+            self.open_maker(el, None);
+        }
+        self.draw_maker(now, false);
         let hearts = show.props.hearts.iter().any(|h| h.is_some());
         let busy = self.button_down || show.lift > 0.0 || !self.mouse.is_empty() || show.playing || show.bubble || hearts;
         let hz = if busy { 30.0 } else { 12.0 };
@@ -558,6 +606,12 @@ impl App {
             self.draw_menu();
             return;
         }
+        if matches!(action, Action::EditPet | Action::MakePet) {
+            self.close_menu();
+            let edit = (action == Action::EditPet).then(|| self.current_pet().clone());
+            self.open_maker(el, edit);
+            return;
+        }
         let old_pet = self.settings.pet.clone();
         menu::apply(&action, &mut self.settings);
         match action {
@@ -603,6 +657,146 @@ impl App {
     fn is_menu(&self, id: WindowId) -> bool {
         self.menu.as_ref().is_some_and(|m| m.win.id() == id)
     }
+
+    // ---------------------------------------------------------------- maker
+
+    /// Open the pet maker, centred on the work area: on a new pet, or on
+    /// `edit` (a built-in is copied, never changed).
+    fn open_maker(&mut self, el: &ActiveEventLoop, edit: Option<PetRecord>) {
+        self.maker = None;
+        let win = match PetWindow::new(el, true) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("PixelPet: could not open the pet maker: {e}");
+                return;
+            }
+        };
+        let maker = match &edit {
+            Some(r) => Maker::edit(r, seed()),
+            None => Maker::new(seed()),
+        };
+        let scale = self.settings.size.zoom();
+        let work = self.platform.work_area();
+        let (w, h) = ((maker::W as u32 * scale) as i32, (maker::H as u32 * scale) as i32);
+        let left = work.x + ((work.w - w) / 2).max(0);
+        let top = work.y + ((work.h - h) / 2).max(0);
+        let now = self.now();
+        let anim = maker.preview_anim();
+        self.maker = Some(MakerOpen { win, maker, scale, left, top, at: (0, 0), held: false, anim_start: now, anim, drawn_at: f64::NEG_INFINITY });
+        self.draw_maker(now, true);
+        if let Some(m) = &self.maker {
+            m.win.focus();
+        }
+    }
+
+    /// Redraw the maker: always when `now_please`, else at 12 fps for the
+    /// preview pet.
+    fn draw_maker(&mut self, now: f64, now_please: bool) {
+        let look = self.look;
+        let Some(m) = self.maker.as_mut() else { return };
+        if !now_please && now - m.drawn_at < 1.0 / 12.0 {
+            return;
+        }
+        let anim = m.maker.preview_anim();
+        if anim != m.anim {
+            (m.anim, m.anim_start) = (anim, now);
+        }
+        let t = ((now - m.anim_start) * 12.0).floor() / 12.0;
+        let d = m.maker.design();
+        let f = rig::render_for(d, &rig::pose_for(d, anim, look, t, None), look);
+        let z = m.scale as i32;
+        let pet = zoomed(&f, m.scale);
+        let img = m.maker.draw(m.scale, &pet, (f.ox * z, (f.gy + 1) * z));
+        if let Err(e) = m.win.present(&img, m.left, m.top, 255) {
+            eprintln!("PixelPet: maker present failed: {e}");
+        }
+        m.drawn_at = now;
+    }
+
+    fn is_maker(&self, id: WindowId) -> bool {
+        self.maker.as_ref().is_some_and(|m| m.win.id() == id)
+    }
+
+    fn maker_event(&mut self, ev: WindowEvent) {
+        let Some(m) = self.maker.as_mut() else { return };
+        let s = m.scale.max(1) as i32;
+        let outcome = match ev {
+            WindowEvent::CursorMoved { position, .. } => {
+                m.at = (position.x as i32, position.y as i32);
+                if m.held {
+                    m.maker.drag(m.at.0 / s, m.at.1 / s)
+                } else {
+                    Outcome::Nothing
+                }
+            }
+            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+                m.held = state == ElementState::Pressed;
+                if m.held {
+                    m.maker.click(m.at.0 / s, m.at.1 / s)
+                } else {
+                    Outcome::Nothing
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => match &event.logical_key {
+                Key::Named(NamedKey::Escape) => m.maker.key(MakerKey::Esc),
+                Key::Named(NamedKey::Enter) => m.maker.key(MakerKey::Enter),
+                Key::Named(NamedKey::Backspace) => m.maker.key(MakerKey::Backspace),
+                _ => {
+                    // typed characters only, and only into this window
+                    let mut out = Outcome::Nothing;
+                    for c in event.text.as_deref().unwrap_or("").chars().filter(|c| !c.is_control()) {
+                        if let Outcome::Redraw = m.maker.key(MakerKey::Char(c)) {
+                            out = Outcome::Redraw;
+                        }
+                    }
+                    out
+                }
+            },
+            WindowEvent::CloseRequested => Outcome::Close,
+            _ => Outcome::Nothing,
+        };
+        self.maker_outcome(outcome);
+    }
+
+    fn maker_outcome(&mut self, o: Outcome) {
+        match o {
+            Outcome::Nothing => {}
+            Outcome::Redraw => self.draw_maker(self.now(), true),
+            Outcome::Close => self.maker = None,
+            Outcome::Done(mut r) => {
+                if r.id.is_empty() {
+                    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+                    r.id = pets::new_id(&self.pets_dir, ms);
+                }
+                if let Err(e) = pets::save(&self.pets_dir, &r) {
+                    eprintln!("PixelPet: could not save the pet: {e}");
+                    return;
+                }
+                self.pets = pets::load_all(&self.pets_dir);
+                self.settings.pet = r.id;
+                self.after_pets_changed();
+            }
+            Outcome::Delete(id) => {
+                if let Err(e) = pets::delete(&self.pets_dir, &id) {
+                    eprintln!("PixelPet: could not delete the pet: {e}");
+                }
+                self.pets = pets::load_all(&self.pets_dir);
+                if self.settings.pet == id {
+                    self.settings.pet = pets::ALEX_ID.to_string();
+                }
+                self.after_pets_changed();
+            }
+        }
+    }
+
+    /// After Done or Delete: save the settings, show the pet, close the maker.
+    fn after_pets_changed(&mut self) {
+        if let Err(e) = settings::save(&self.settings_path, &self.settings) {
+            eprintln!("PixelPet: could not save settings: {e}");
+        }
+        self.swap_pet();
+        self.maker = None;
+    }
 }
 
 impl Default for App {
@@ -626,6 +820,10 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
+        if self.is_maker(id) {
+            self.maker_event(ev);
+            return;
+        }
         if self.is_bubble(id) {
             if let WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } = ev {
                 self.bubble_click();

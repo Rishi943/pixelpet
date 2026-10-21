@@ -7,6 +7,9 @@ bin=${1:-./target/debug/PixelPet}
 here=$(cd "$(dirname "$0")" && pwd)
 # settings in a temp home, so the run never touches a real config
 export HOME=$(mktemp -d)
+# not a first launch: a first launch opens the pet maker over the desktop
+mkdir -p "$HOME/Library/Application Support/PixelPet"
+echo "pet = alex" > "$HOME/Library/Application Support/PixelPet/settings.txt"
 
 screencapture -x empty-mac.png
 PIXELPET_PIN=stand PIXELPET_EXIT_AFTER=8 "$bin" &
@@ -25,6 +28,14 @@ for kind in menu menu-focus; do
   wait $pet
   echo "PixelPet ($kind) exited with $?"
 done
+
+# a first launch, for a person to look at: the pet maker opens by itself
+HOME=$(mktemp -d) PIXELPET_EXIT_AFTER=6 "$bin" &
+pet=$!
+sleep 4
+screencapture -x maker-mac.png
+wait $pet
+echo "PixelPet (first launch) exited with $?"
 
 # control: can screencapture see another app's window here at all?
 open -a Calculator || true
