@@ -68,10 +68,11 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
-    # an old glibc, so the AppImage runs on most distros
-    container: debian:bullseye
+    # an older glibc (2.35), so the AppImage runs on most distros. (Debian
+    # bullseye's mirrors were archived at its end of life.)
+    container: ubuntu:22.04
     steps:
-      - run: apt-get update && apt-get install -y build-essential curl ca-certificates file
+      - run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential curl ca-certificates file
       - uses: actions/checkout@v4
       - run: curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
