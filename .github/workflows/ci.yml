@@ -38,7 +38,7 @@ jobs:
         if: always()
         with:
           name: linux-shots
-          path: shot-*.png
+          path: "*.png"
 
   # macOS minutes count 10x on a private repo: tags and manual runs only
   test-macos:

@@ -3,7 +3,9 @@
 
     check_shot.py SHOT.png --bg 3a6ea5       solid background of that colour
     check_shot.py SHOT.png --empty EMPTY.png  any wallpaper: compare with a shot
-                                              taken after PixelPet quit
+                                              of the same desktop without the pet
+    check_shot.py EMPTY.png --uniform         the baseline is one colour, not black
+                                              (a black desktop would hide a black box)
 
 Passes when the pet is there (enough changed pixels in the bottom 300 rows),
 nothing else drew (the top-left 100x100 is untouched), and the background
@@ -62,6 +64,11 @@ def near(p, q):
 def main():
     shot = read_png(sys.argv[1])
     w, h, rows = shot
+    if sys.argv[2] == "--uniform":
+        c = rows[h // 2][w // 2]
+        off = sum(not near(p, c) for r in rows for p in r)
+        print(f"desktop #{bytes(c).hex()}, {off} of {w * h} pixels differ")
+        sys.exit(1 if off > w * h // 100 or near(c, (0, 0, 0)) else 0)
     if sys.argv[2] == "--bg":
         c = bytes.fromhex(sys.argv[3])
         bg = lambda x, y: tuple(c)
