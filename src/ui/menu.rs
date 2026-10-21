@@ -86,15 +86,21 @@ const STEPS: [u8; 4] = [25, 50, 75, 100];
 
 impl Menu {
     pub fn new(s: &Settings) -> Menu {
-        Menu::build(s, false)
+        Menu::build(s, false, None)
     }
 
     /// The menu with its last line asking "Quit PixelPet? Yes | No".
     pub fn confirming_quit(s: &Settings) -> Menu {
-        Menu::build(s, true)
+        Menu::build(s, true, None)
     }
 
-    fn build(s: &Settings, confirm_quit: bool) -> Menu {
+    /// The menu with a line under "Launch on startup" saying why it could
+    /// not be turned on.
+    pub fn with_note(s: &Settings, note: &str) -> Menu {
+        Menu::build(s, false, Some(note))
+    }
+
+    fn build(s: &Settings, confirm_quit: bool, note: Option<&str>) -> Menu {
         let mut rows: Vec<Row> = vec![];
         let mut lines: Vec<Line> = vec![];
         let mut line = |rows: &mut Vec<Row>, heading: Option<&str>, opts: Vec<(String, Action, bool)>| {
@@ -145,6 +151,9 @@ impl Menu {
         );
         let startup = format!("Launch on startup [{}]", if s.autostart { "on" } else { "off" });
         line(&mut rows, None, vec![(startup, Action::ToggleAutostart, s.autostart)]);
+        if let Some(n) = note {
+            line(&mut rows, Some(n), vec![]);
+        }
         if confirm_quit {
             line(
                 &mut rows,
@@ -154,6 +163,11 @@ impl Menu {
             lines.last_mut().unwrap().own_column = true;
         } else {
             line(&mut rows, None, vec![("Quit".into(), Action::AskQuit, false)]);
+        }
+        if note.is_some() {
+            // the note sits on its own, so its length doesn't push the options right
+            let i = lines.len() - 2;
+            lines[i].own_column = true;
         }
 
         // layout: headings in one column, options after the widest heading
@@ -200,6 +214,7 @@ impl Menu {
             .map(|l| {
                 let opts: Vec<&str> = l.cells.iter().map(|&r| self.rows[r].label.as_str()).collect();
                 match l.heading {
+                    Some(h) if opts.is_empty() => self.rows[h].label.clone(),
                     Some(h) => format!("{} {}", self.rows[h].label, opts.join(" | ")),
                     None => opts.join(" | "),
                 }

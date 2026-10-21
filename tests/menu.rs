@@ -115,3 +115,19 @@ fn quit_asks_first() {
     apply(&Action::CancelQuit, &mut t);
     assert_eq!(t, s);
 }
+
+/// When launch on startup is refused (macOS: run from the dmg or Downloads),
+/// the menu says why instead of the toggle silently flipping back.
+#[test]
+fn a_refused_autostart_is_explained_in_the_menu() {
+    let s = Settings::default();
+    let m = Menu::with_note(&s, "Move PixelPet to Applications first");
+    assert_eq!(m.lines()[5], "Launch on startup [off]");
+    assert_eq!(m.lines()[6], "Move PixelPet to Applications first");
+    assert_eq!(m.lines()[7], "Quit");
+    // the note is not clickable, and the menu keeps its other widths
+    assert!(m.rows().iter().all(|r| r.label != "Move PixelPet to Applications first" || r.action.is_none()));
+    for c in "Move PixelPet to Applications first".chars() {
+        assert!(font::glyph(c).is_some(), "font lacks {c:?}");
+    }
+}

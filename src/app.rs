@@ -530,11 +530,13 @@ impl App {
         }
         let old_pet = self.settings.pet;
         menu::apply(&action, &mut self.settings);
+        let mut note = None;
         if action == Action::ToggleAutostart {
             let target = self.settings.autostart.then_some(self.exe.as_path());
             if let Err(e) = self.platform.set_autostart(target) {
-                eprintln!("PixelPet: launch on startup: {e}");
                 self.settings.autostart = !self.settings.autostart; // didn't happen
+                // say why in the menu: a GUI app has no visible stderr
+                note = Some(autostart_note(&e));
             }
         }
         if let Err(e) = settings::save(&self.settings_path, &self.settings) {
@@ -553,7 +555,10 @@ impl App {
             self.presented = None;
         }
         if let Some(m) = self.menu.as_mut() {
-            m.menu = Menu::new(&self.settings);
+            m.menu = match &note {
+                Some(n) => Menu::with_note(&self.settings, n),
+                None => Menu::new(&self.settings),
+            };
             m.scale = self.settings.size.zoom();
         }
         if matches!(action, Action::SetSize(_)) {
@@ -654,6 +659,17 @@ impl ApplicationHandler for App {
             return;
         }
         self.tick(el);
+    }
+}
+
+/// The menu line for a refused launch-on-startup: the platform's own reason
+/// when it gave one in words (macOS translocation), else a plain fallback.
+fn autostart_note(e: &std::io::Error) -> String {
+    let msg = e.to_string();
+    let mut c = msg.chars();
+    match c.next() {
+        Some(f) if e.kind() == std::io::ErrorKind::Other && msg.len() < 48 => f.to_uppercase().chain(c).collect(),
+        _ => "Could not change launch on startup".into(),
     }
 }
 
