@@ -24,7 +24,16 @@ extern "C" {
 const COMBINED_SESSION_STATE: i32 = 0;
 const ANY_INPUT_EVENT: u32 = !0;
 
-pub struct Mac;
+pub struct Mac {
+    /// `~/Library/LaunchAgents/com.pixelpet.app.plist`, from `HOME` once
+    agent: Option<PathBuf>,
+}
+
+impl Mac {
+    pub fn new() -> Mac {
+        Mac { agent: launch_agent() }
+    }
+}
 
 /// The primary screen (the one with the menu bar): its frame, visible frame
 /// (minus menu bar and Dock), and backing scale.
@@ -106,11 +115,11 @@ impl Platform for Mac {
     }
 
     fn autostart(&self) -> Option<PathBuf> {
-        program_from_plist(&std::fs::read_to_string(launch_agent()?).ok()?)
+        program_from_plist(&std::fs::read_to_string(self.agent.as_ref()?).ok()?)
     }
 
     fn set_autostart(&self, target: Option<&Path>) -> std::io::Result<()> {
-        let file = launch_agent().ok_or_else(|| std::io::Error::other("no home folder"))?;
+        let file = self.agent.clone().ok_or_else(|| std::io::Error::other("no home folder"))?;
         match target {
             Some(t) => {
                 let t = autostart_target(t, &|k| std::env::var(k).ok()).map_err(std::io::Error::other)?;
@@ -139,7 +148,7 @@ mod tests {
     #[test]
     fn work_area_is_inside_the_main_screen() {
         let (frame, _, scale) = primary().expect("a screen");
-        let w = Mac.work_area();
+        let w = Mac::new().work_area();
         let (sw, sh) = ((frame.size.width * scale) as i32, (frame.size.height * scale) as i32);
         assert!(w.w > 0 && w.h > 0 && w.x >= 0 && w.y >= 0, "{w:?}");
         assert!(w.x + w.w <= sw && w.bottom() <= sh, "{w:?} on {sw}x{sh}");
@@ -148,38 +157,39 @@ mod tests {
 
     #[test]
     fn cursor_is_known_and_inside_the_screen() {
-        let (x, y) = Mac.cursor_pos().expect("cursor");
+        let (x, y) = Mac::new().cursor_pos().expect("cursor");
         let (frame, _, scale) = primary().unwrap();
         assert!(x >= 0 && y >= 0 && x <= (frame.size.width * scale) as i32 && y <= (frame.size.height * scale) as i32);
     }
 
     #[test]
     fn idle_is_known() {
-        assert!(Mac.idle_seconds().is_some());
+        assert!(Mac::new().idle_seconds().is_some());
     }
 
     #[test]
     fn fullscreen_is_known() {
-        assert!(Mac.fullscreen_app().is_some());
+        assert!(Mac::new().fullscreen_app().is_some());
     }
 
     #[test]
     fn esc_is_never_read() {
-        assert!(!Mac.esc_down());
+        assert!(!Mac::new().esc_down());
     }
 
     #[test]
     fn autostart_round_trip_in_a_temp_home() {
+        // never set_var here: other test threads read the environment
         let home = std::env::temp_dir().join(format!("pixelpet-home-{}", std::process::id()));
-        std::env::set_var("HOME", &home);
+        let mac = Mac { agent: Some(home.join("Library/LaunchAgents/com.pixelpet.app.plist")) };
         let exe = Path::new("/Applications/PixelPet.app/Contents/MacOS/PixelPet");
-        Mac.set_autostart(Some(exe)).unwrap();
-        assert_eq!(Mac.autostart().as_deref(), Some(exe));
+        mac.set_autostart(Some(exe)).unwrap();
+        assert_eq!(mac.autostart().as_deref(), Some(exe));
         assert!(home.join("Library/LaunchAgents/com.pixelpet.app.plist").is_file());
-        Mac.set_autostart(None).unwrap();
-        assert_eq!(Mac.autostart(), None);
+        mac.set_autostart(None).unwrap();
+        assert_eq!(mac.autostart(), None);
         let moved = Path::new("/private/var/folders/x/AppTranslocation/A/d/PixelPet.app/Contents/MacOS/PixelPet");
-        assert!(Mac.set_autostart(Some(moved)).is_err());
+        assert!(mac.set_autostart(Some(moved)).is_err());
         let _ = std::fs::remove_dir_all(home);
     }
 }

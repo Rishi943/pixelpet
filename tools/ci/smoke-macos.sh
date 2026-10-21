@@ -16,12 +16,15 @@ screencapture -x shot-mac.png
 wait $pet
 echo "PixelPet exited with $?"
 
-PIXELPET_PIN=stand PIXELPET_SCRIPT="2:menu-focus" PIXELPET_EXIT_AFTER=7 "$bin" &
-pet=$!
-sleep 5
-screencapture -x menu-mac.png
-wait $pet
-echo "PixelPet (menu) exited with $?"
+# the right-click menu, opened without and with keyboard focus
+for kind in menu menu-focus; do
+  PIXELPET_PIN=stand PIXELPET_SCRIPT="2:$kind" PIXELPET_EXIT_AFTER=6 "$bin" &
+  pet=$!
+  sleep 4
+  screencapture -x "$kind-mac.png"
+  wait $pet
+  echo "PixelPet ($kind) exited with $?"
+done
 
 # control: can screencapture see another app's window here at all?
 open -a Calculator || true

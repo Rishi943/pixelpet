@@ -198,7 +198,7 @@ pub fn native() -> Box<dyn Platform> {
     }
     #[cfg(target_os = "macos")]
     {
-        Box::new(macos::Mac)
+        Box::new(macos::Mac::new())
     }
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {

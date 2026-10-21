@@ -23,6 +23,8 @@ pub struct X11 {
     a_active: u32,
     a_state: u32,
     a_fullscreen: u32,
+    /// `~/.config/autostart/pixelpet.desktop`, read from the environment once
+    autostart_file: Option<PathBuf>,
 }
 
 impl X11 {
@@ -43,7 +45,7 @@ impl X11 {
             atom("_NET_WM_STATE_FULLSCREEN")?,
         );
         let esc = escape_keycode(&conn);
-        Ok(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen })
+        Ok(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen, autostart_file: autostart_file() })
     }
 
     fn cardinals(&self, win: Window, prop: u32, kind: AtomEnum) -> Option<Vec<u32>> {
@@ -117,11 +119,11 @@ impl Platform for X11 {
     }
 
     fn autostart(&self) -> Option<PathBuf> {
-        exec_from_desktop(&std::fs::read_to_string(autostart_file()?).ok()?)
+        exec_from_desktop(&std::fs::read_to_string(self.autostart_file.as_ref()?).ok()?)
     }
 
     fn set_autostart(&self, target: Option<&Path>) -> std::io::Result<()> {
-        let file = autostart_file().ok_or_else(|| std::io::Error::other("no home folder"))?;
+        let file = self.autostart_file.clone().ok_or_else(|| std::io::Error::other("no home folder"))?;
         match target {
             Some(t) => {
                 let t = autostart_target(t, &|k| std::env::var(k).ok()).map_err(std::io::Error::other)?;
@@ -183,10 +185,10 @@ mod tests {
 
     #[test]
     fn autostart_round_trip_in_a_temp_home() {
+        // never set_var here: other test threads are inside libxcb's getenv
         let dir = std::env::temp_dir().join(format!("pixelpet-xdg-{}", std::process::id()));
-        std::env::set_var("XDG_CONFIG_HOME", &dir);
-        std::env::remove_var("APPIMAGE");
-        let p = x();
+        let mut p = x();
+        p.autostart_file = Some(dir.join("autostart/pixelpet.desktop"));
         let exe = Path::new("/opt/pixel pet/PixelPet");
         p.set_autostart(Some(exe)).unwrap();
         assert_eq!(p.autostart().as_deref(), Some(exe));
