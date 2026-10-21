@@ -3,7 +3,7 @@
 #   smoke-linux.sh MODE [BINARY]
 # MODE: composited (xcompmgr running) or bare (no compositor: shape fallback).
 # Writes shot-MODE.png and checks it with check_shot.py.
-set -euo pipefail
+set -euxo pipefail
 mode=$1
 bin=${2:-./target/debug/PixelPet}
 here=$(cd "$(dirname "$0")" && pwd)
