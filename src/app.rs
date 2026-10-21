@@ -246,6 +246,14 @@ impl App {
             flick_up,
             can_warp: self.can_warp,
         };
+        // where the OS can't pass clicks through per pixel, say where the
+        // pet takes them (a no-op on Windows and X11)
+        if let Some(w) = &self.win {
+            w.set_click_through(!(inp.over_pet || inp.over_toy || self.button_down));
+        }
+        if let Some(b) = &self.bubble_open {
+            b.win.set_click_through(!inp.over_bubble);
+        }
         let show = self.brain.update(&inp, &self.settings);
         self.was_over = inp.over_pet;
         self.last_x = show.x;
@@ -677,7 +685,20 @@ pub fn run() -> Result<(), String> {
         eprintln!("PixelPet is already running");
         return Ok(());
     };
-    let el = EventLoop::new().map_err(|e| e.to_string())?;
+    let el = event_loop()?;
     let mut app = App::new();
     el.run_app(&mut app).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn event_loop() -> Result<EventLoop<()>, String> {
+    // X11 always: on Wayland desktops this runs through XWayland, which is
+    // what gives a global cursor, click-through and staying on top
+    use winit::platform::x11::EventLoopBuilderExtX11;
+    EventLoop::builder().with_x11().build().map_err(|e| format!("PixelPet needs X11 or XWayland ({e})"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn event_loop() -> Result<EventLoop<()>, String> {
+    EventLoop::new().map_err(|e| e.to_string())
 }

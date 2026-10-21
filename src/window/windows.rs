@@ -102,6 +102,10 @@ impl PetWindow {
         }
     }
 
+    /// Clicks already pass through fully transparent pixels (the layered
+    /// window does it per pixel).
+    pub fn set_click_through(&self, _through: bool) {}
+
     /// Ask for keyboard focus (the menu window, so Esc and focus-lost work).
     pub fn focus(&self) {
         self.win.focus_window();

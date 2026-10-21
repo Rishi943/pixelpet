@@ -26,6 +26,12 @@ features = [
     "Win32_UI_Input_KeyboardAndMouse",
 ]
 
+# the X11 crate winit already uses; shape/randr/screensaver add no crates
+[target.'cfg(target_os = "linux")'.dependencies.x11rb]
+version = "=0.13.2"
+default-features = false
+features = ["allow-unsafe-code", "dl-libxcb", "image", "shape", "randr", "screensaver"]
+
 [[test]]
 name = "window_hit"
 harness = false

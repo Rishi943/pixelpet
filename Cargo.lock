@@ -853,6 +853,7 @@ version = "0.1.0"
 dependencies = [
  "windows-sys 0.52.0",
  "winit",
+ "x11rb",
 ]
 
 [[package]]

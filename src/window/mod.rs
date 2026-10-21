@@ -15,12 +15,19 @@ impl Rgba {
     }
 }
 
+pub mod shape;
+
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 pub use self::windows::PetWindow;
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use self::linux::PetWindow;
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod unsupported {
     use super::Rgba;
     use winit::event_loop::ActiveEventLoop;
@@ -43,7 +50,8 @@ mod unsupported {
         pub fn hide(&self) {}
         pub fn show(&self) {}
         pub fn focus(&self) {}
+        pub fn set_click_through(&self, _through: bool) {}
     }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub use self::unsupported::PetWindow;
