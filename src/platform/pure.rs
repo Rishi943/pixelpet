@@ -110,3 +110,10 @@ pub fn autostart_target(exe: &Path, env: &dyn Fn(&str) -> Option<String>) -> Res
     }
     Ok(exe.to_path_buf())
 }
+
+/// Whether this is a Wayland session (PixelPet then runs through XWayland,
+/// which answers idle, warp and fullscreen queries for X clients only, so
+/// the answers look real and are wrong: spec §8's Wayland column says none).
+pub fn wayland_session(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    env("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) || env("XDG_SESSION_TYPE").is_some_and(|v| v == "wayland")
+}

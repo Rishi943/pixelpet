@@ -89,3 +89,13 @@ fn lock_is_released_when_holder_dies() {
     assert!(p.exists(), "the helper made the lock file");
     assert!(Lock::claim(&p).is_some(), "a dead holder's lock must not block");
 }
+
+#[test]
+fn a_wayland_session_is_recognised() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
+    assert!(wayland_session(&env(&[("WAYLAND_DISPLAY", "wayland-0"), ("DISPLAY", ":0")])));
+    assert!(wayland_session(&env(&[("XDG_SESSION_TYPE", "wayland")])));
+    assert!(!wayland_session(&env(&[("XDG_SESSION_TYPE", "x11"), ("DISPLAY", ":0")])));
+    assert!(!wayland_session(&env(&[("WAYLAND_DISPLAY", "")])));
+    assert!(!wayland_session(&env(&[])));
+}

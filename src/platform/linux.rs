@@ -2,7 +2,7 @@
 //! Every query answers None/false rather than failing if the server lacks
 //! what it needs.
 
-use super::pure::{autostart_desktop, autostart_target, exec_from_desktop};
+use super::pure::{autostart_desktop, autostart_target, exec_from_desktop, wayland_session};
 use super::{Platform, Rect};
 use std::path::{Path, PathBuf};
 use x11rb::connection::Connection;
@@ -25,6 +25,8 @@ pub struct X11 {
     a_fullscreen: u32,
     /// `~/.config/autostart/pixelpet.desktop`, read from the environment once
     autostart_file: Option<PathBuf>,
+    /// a Wayland session seen through XWayland: no idle, warp or fullscreen
+    wayland: bool,
 }
 
 impl X11 {
@@ -45,7 +47,7 @@ impl X11 {
             atom("_NET_WM_STATE_FULLSCREEN")?,
         );
         let esc = escape_keycode(&conn);
-        Ok(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen, autostart_file: autostart_file() })
+        Ok(X11 { conn, root, esc, a_workarea, a_active, a_state, a_fullscreen, autostart_file: autostart_file(), wayland: wayland_session(&|k| std::env::var(k).ok()) })
     }
 
     fn cardinals(&self, win: Window, prop: u32, kind: AtomEnum) -> Option<Vec<u32>> {
@@ -88,6 +90,9 @@ impl Platform for X11 {
     }
 
     fn warp_cursor(&self, x: i32, y: i32) -> bool {
+        if self.wayland {
+            return false; // XWayland moves only its own idea of the pointer
+        }
         let ok = self.conn.warp_pointer(x11rb::NONE, self.root, 0, 0, 0, 0, x as i16, y as i16).is_ok();
         ok && self.conn.flush().is_ok()
     }
@@ -105,11 +110,17 @@ impl Platform for X11 {
     }
 
     fn idle_seconds(&self) -> Option<f64> {
+        if self.wayland {
+            return None; // XWayland sees input to X clients only
+        }
         let r = self.conn.screensaver_query_info(self.root).ok()?.reply().ok()?;
         Some(r.ms_since_user_input as f64 / 1000.0)
     }
 
     fn fullscreen_app(&self) -> Option<bool> {
+        if self.wayland {
+            return None; // _NET_ACTIVE_WINDOW knows X windows only
+        }
         let active = *self.cardinals(self.root, self.a_active, AtomEnum::WINDOW)?.first()?;
         if active == 0 {
             return None;
