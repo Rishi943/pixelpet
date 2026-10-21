@@ -23,6 +23,9 @@ CI machines prove the program starts and draws. They can't prove it feels right.
 - [ ] A fullscreen video hides the pet with "Hide", and dims it with "Stay visible".
 - [ ] Launch on startup survives a log-out and log-in (macOS: run from Applications).
 - [ ] Only one PixelPet runs when it's launched twice.
+- [ ] First launch opens the pet maker by itself, once; closing it leaves Alex.
+- [ ] Make a pet: all five steps, Done puts it on the taskbar; the menu's < > arrows switch pets; clicking the name edits it; Delete asks first.
+- [ ] Typing a name works (macOS and Linux keyboards, including Backspace and Enter).
 - [ ] No Dock icon (macOS) and no taskbar entry (Linux).
 - [ ] macOS: no permission prompt of any kind appears.
 - [ ] Clicking, petting or dragging the pet leaves the app you were typing in focused. (Windows: yes, by design. macOS: probably not yet; a click activates PixelPet. Linux: WM_HINTS asks the window manager not to focus it.)
