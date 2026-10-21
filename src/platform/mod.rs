@@ -148,6 +148,9 @@ impl Platform for Fake {
     }
 }
 
+pub mod lock;
+pub mod pure;
+
 #[cfg(windows)]
 mod windows;
 
@@ -155,11 +158,13 @@ mod windows;
 pub struct InstanceGuard {
     #[cfg(windows)]
     _inner: windows::Mutex,
+    #[cfg(not(windows))]
+    _inner: lock::Lock,
 }
 
 /// Claim the single-instance lock `name`. None means another PixelPet
-/// already holds it. Where the OS has no support (M1: not Windows) the claim
-/// always succeeds.
+/// already holds it. On Windows it is a named mutex; elsewhere a file lock
+/// next to the settings file.
 pub fn claim_single_instance(name: &str) -> Option<InstanceGuard> {
     #[cfg(windows)]
     {
@@ -167,8 +172,10 @@ pub fn claim_single_instance(name: &str) -> Option<InstanceGuard> {
     }
     #[cfg(not(windows))]
     {
-        let _ = name;
-        Some(InstanceGuard {})
+        let exe = std::env::current_exe().unwrap_or_default();
+        let settings = crate::settings::settings_path(crate::settings::current_os(), &exe, &|k| std::env::var(k).ok());
+        let path = settings.with_file_name(format!("{}.lock", name.to_lowercase()));
+        lock::Lock::claim(&path).map(|l| InstanceGuard { _inner: l })
     }
 }
 
