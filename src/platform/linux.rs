@@ -150,7 +150,12 @@ mod tests {
     //! Run under a real X server (CI: xvfb-run).
     use super::*;
 
+    /// The app opens X from one thread; tests open it from many at once,
+    /// which fails now and then while libxcb is first loaded. One at a time.
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn x() -> X11 {
+        let _g = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
         X11::connect().expect("an X server (run under xvfb-run)")
     }
 
