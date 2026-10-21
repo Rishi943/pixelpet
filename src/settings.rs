@@ -218,20 +218,19 @@ mod tests {
     fn defaults_when_empty() {
         let s = Settings::parse("");
         assert_eq!(s, Settings::default());
-        assert_eq!(s.pet, PetChoice::Alex);
+        assert_eq!(s.pet, "alex");
         assert_eq!(s.size, Size::M);
         assert_eq!(s.opacity, 100);
         assert_eq!(s.fullscreen, FullscreenMode::Hide);
         assert_eq!(s.fullscreen_opacity, 50);
         assert!(!s.autostart);
         assert_eq!(s.size.zoom(), 3);
-        assert_eq!(s.pet.pet(), Pet::Dog);
     }
 
     #[test]
     fn round_trip() {
         let s = Settings {
-            pet: PetChoice::AlexTheBun,
+            pet: "alex-the-bun".into(),
             size: Size::XL,
             opacity: 75,
             fullscreen: FullscreenMode::Stay,
@@ -240,14 +239,13 @@ mod tests {
             extra: vec![],
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
-        assert_eq!(s.pet.pet(), Pet::Rabbit);
         assert_eq!([Size::S, Size::M, Size::L, Size::XL].map(|z| z.zoom()), [2, 3, 4, 5]);
     }
 
     #[test]
     fn keeps_unknown_keys() {
         let s = Settings::parse("colour = red\npet = alex-the-bun\n");
-        assert_eq!(s.pet, PetChoice::AlexTheBun);
+        assert_eq!(s.pet, "alex-the-bun");
         let text = s.to_text();
         assert!(text.contains("colour = red"), "{text}");
         assert!(text.starts_with("# PixelPet settings\n"), "{text}");
@@ -257,7 +255,7 @@ mod tests {
     #[test]
     fn tolerates_bom_crlf_blanks_spaces() {
         let s = Settings::parse("\u{feff}pet=alex-the-bun\r\n\r\n  size =  L \r\n# a comment\r\n");
-        assert_eq!(s.pet, PetChoice::AlexTheBun);
+        assert_eq!(s.pet, "alex-the-bun");
         assert_eq!(s.size, Size::L);
     }
 
@@ -265,7 +263,7 @@ mod tests {
     fn bad_values_fall_back_per_key() {
         let s = Settings::parse("size = huge\npet = alex-the-bun\nopacity = lots\nnot a line\n");
         assert_eq!(s.size, Size::M);
-        assert_eq!(s.pet, PetChoice::AlexTheBun);
+        assert_eq!(s.pet, "alex-the-bun");
         assert_eq!(s.opacity, 100);
     }
 
