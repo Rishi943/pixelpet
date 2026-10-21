@@ -50,6 +50,9 @@ struct MenuOpen {
     left: i32,
     top: i32,
     last_over: f64,
+    /// macOS sends a new window Focused(false) before it was ever focused;
+    /// only a menu that had focus closes when it loses it
+    had_focus: bool,
 }
 
 pub struct App {
@@ -450,7 +453,7 @@ impl App {
         let menu = Menu::new(&self.settings);
         let scale = self.settings.size.zoom();
         let (left, top) = self.menu_place(&menu, scale, work);
-        self.menu = Some(MenuOpen { win, menu, scale, left, top, last_over: self.now() });
+        self.menu = Some(MenuOpen { win, menu, scale, left, top, last_over: self.now(), had_focus: false });
         self.draw_menu();
         if let (Some(m), true) = (&self.menu, focus) {
             m.win.focus();
@@ -602,7 +605,12 @@ impl ApplicationHandler for App {
                 WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => self.menu_click(el),
                 WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => self.close_menu(),
                 WindowEvent::KeyboardInput { event, .. } if event.logical_key == Key::Named(NamedKey::Escape) => self.close_menu(),
-                WindowEvent::Focused(false) => self.close_menu(),
+                WindowEvent::Focused(true) => {
+                    if let Some(m) = self.menu.as_mut() {
+                        m.had_focus = true;
+                    }
+                }
+                WindowEvent::Focused(false) if self.menu.as_ref().is_some_and(|m| m.had_focus) => self.close_menu(),
                 _ => {}
             }
             return;
