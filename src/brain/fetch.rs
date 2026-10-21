@@ -60,7 +60,7 @@ impl Brain {
         }
         let dist = (tx - self.x).abs() / u + DEPTH_COST * (td - self.depth).abs();
         let phase = ((now - self.anim_start) / rig::period(self.pet, anim)).rem_euclid(1.0);
-        let step = rig::speed(self.pet, self.look, anim) * rig::move_profile(self.pet, anim, phase) * dt;
+        let step = rig::speed_for(&self.design, self.look, anim) * rig::move_profile(self.pet, anim, phase) * dt;
         if dist <= step.max(0.02) {
             self.x = tx;
             self.depth = td;

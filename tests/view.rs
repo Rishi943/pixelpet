@@ -128,3 +128,15 @@ fn eyes_closed_changes_the_frame() {
     // and the cache keys on it: the same view switches when asked
     assert_eq!(a.frame(&shut, 0.1, 3, false, 0.0).0.px, y);
 }
+
+#[test]
+fn view_draws_the_design() {
+    use pixelpet::rig::breeds::breeds;
+    let look = rig::look("classic");
+    let s = show(Anim::Stand, 0.0);
+    let alex = View::new(Pet::Dog, look).frame(&s, 0.0, 3, false, 0.0).0.px.clone();
+    let same = View::with_design(rig::Design::alex(), look).frame(&s, 0.0, 3, false, 0.0).0.px.clone();
+    assert_eq!(alex, same, "the built-in design is Alex");
+    let lab = View::with_design((breeds(Pet::Dog)[2].design)(), look).frame(&s, 0.0, 3, false, 0.0).0.px.clone();
+    assert_ne!(alex, lab, "a Black Lab looks different");
+}

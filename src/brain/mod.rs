@@ -153,6 +153,7 @@ enum Mode {
 
 pub struct Brain {
     pet: Pet,
+    design: rig::Design,
     look: &'static Look,
     wander: Wander,
     mode: Mode,
@@ -195,8 +196,14 @@ pub struct Brain {
 
 impl Brain {
     pub fn new(pet: Pet, seed: u64, now: f64, work: Rect) -> Brain {
+        Brain::with_design(rig::Design::builtin(pet), seed, now, work)
+    }
+
+    /// A brain for a made pet: its proportions set how fast it travels.
+    pub fn with_design(design: rig::Design, seed: u64, now: f64, work: Rect) -> Brain {
         let mut b = Brain {
-            pet,
+            pet: design.pet,
+            design,
             // v1 ships look B only
             look: rig::look("classic"),
             wander: Wander::new(seed),
@@ -342,7 +349,7 @@ impl Brain {
     /// Move along the ground if the current anim travels. Returns true when
     /// the pet was stopped by an edge.
     fn travel(&mut self, now: f64, dt: f64, unit_px: f64, lo: f64, hi: f64, turn: bool) -> bool {
-        let sp = rig::speed(self.pet, self.look, self.anim);
+        let sp = rig::speed_for(&self.design, self.look, self.anim);
         if sp <= 0.0 {
             return false;
         }

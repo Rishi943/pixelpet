@@ -144,7 +144,9 @@ struct Blend {
 }
 
 pub struct View {
-    pet: Pet,
+    design: rig::Design,
+    /// the design's palette, compiled once (None: a built-in's own)
+    palette: Option<rig::core::Palette>,
     look: &'static Look,
     frame_key: Option<FrameKey>,
     frame: Option<Frame>,
@@ -161,8 +163,15 @@ pub struct View {
 
 impl View {
     pub fn new(pet: Pet, look: &'static Look) -> View {
+        View::with_design(rig::Design::builtin(pet), look)
+    }
+
+    /// A view of a made pet.
+    pub fn with_design(design: rig::Design, look: &'static Look) -> View {
+        let plain = design.coat.is_empty() && design.collar.is_none();
         View {
-            pet,
+            palette: (!plain).then(|| design.palette()),
+            design,
             look,
             frame_key: None,
             frame: None,
@@ -227,14 +236,18 @@ impl View {
         };
         if self.frame_key != Some(key) {
             let t = tick as f64 / FPS;
-            let mut s = rig::pose(self.pet, show.anim, look, t, key.toy);
+            let mut s = rig::pose_for(&self.design, show.anim, look, t, key.toy);
             if let (Some(b), true) = (&self.blend, step < 3) {
                 s = rig::lerp(&b.from, &s, step as f64 / BLEND_STEPS);
             }
             if show.eyes_closed {
                 s = rig::with_eyes_closed(s);
             }
-            self.frame = Some(rig::render(&s, look, collar));
+            self.frame = Some(match &self.palette {
+                Some(pal) => rig::render_with(&self.design, &s, look, pal),
+                None if self.design.shape == rig::Shape::default() => rig::render(&s, look, collar),
+                None => rig::render_for(&self.design, &s, look),
+            });
             self.frame_key = Some(key);
             self.last_skel = Some(s);
             self.renders += 1;

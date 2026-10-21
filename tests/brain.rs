@@ -964,3 +964,20 @@ fn play_put_away_when_the_user_goes_back_to_work() {
     }
     assert!(!sim.last.playing && sim.last.props.food.is_none(), "the food is still in the hand");
 }
+
+#[test]
+fn long_legged_dog_walks_further() {
+    let walked = |legs: f64| {
+        let mut d = pixelpet::rig::Design::alex();
+        d.shape.legs = legs;
+        let mut sim = Sim::new(Pet::Dog);
+        sim.brain = Brain::with_design(d, SEED, 0.0, WORK);
+        sim.brain.pin(Some(Anim::Walk));
+        sim.step();
+        let x0 = sim.last.x;
+        sim.run(2.0, |_, _| {});
+        (sim.last.x - x0).abs()
+    };
+    let (short, long) = (walked(1.0), walked(1.3));
+    assert!(long > short * 1.2, "legs 1.3 walked {long:.0} px, legs 1.0 {short:.0} px");
+}
