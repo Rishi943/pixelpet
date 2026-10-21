@@ -2,6 +2,33 @@
 
 Newest first. The project's own session record; the shared `E:\AI` tracker only points here.
 
+## 2026-10-21 (later) — PixelPet M3: macOS, Linux and release builds, on branch `m3`
+
+**Repo:** now on GitHub, **private**: `Rishi943/pixelpet` (remote `origin`). Branch `m3`, not merged. Plan
+`docs/superpowers/plans/2026-10-21-pixelpet-m3-mac-linux-release.md`. Suite: 124 pass, 1 ignored.
+
+**What landed:** macOS window + platform (`src/window/macos.rs`, `src/platform/macos.rs`), Linux X11 window +
+platform (`src/window/linux.rs`, `src/platform/linux.rs`, Wayland via XWayland), pure helpers tested anywhere
+(`src/platform/pure.rs`, `lock.rs`, `src/window/shape.rs`). CI on all three OSes with screenshot smoke tests
+(`.github/workflows/ci.yml`, `tools/ci/`); macOS jobs only on tags/manual runs (private repo, 10x minutes).
+`release.yml`: a tag `v*` makes a DRAFT release with `PixelPet.exe` (MSVC, static CRT, 0.84 MB),
+`PixelPet.dmg` (universal, ad-hoc signed, no Dock icon) and `PixelPet-x86_64.AppImage` (built on Ubuntu 20.04).
+Drafts `v0.1.0-rc1` (stale) and `v0.1.0-rc2` (current) exist; nothing is published.
+
+**Seen on CI screenshots:** Alex on a Linux desktop with and without a compositor (no box), on the macOS Dock
+with the pixel menu open. Same pixels as Windows (parity tests pass on all three).
+
+**Decisions:** macOS never reads Esc (it needs the Input Monitoring prompt, which looks like a key logger;
+right-click ends play). In a Wayland session idle, cursor warp and fullscreen are off (spec §8).
+
+**Not done / owed:** nobody has run it on a real Mac or Linux desktop — checklist in `docs/release.md`. Known
+open: on macOS a click on the pet probably takes focus from the user's app (needs a non-activating panel).
+The release exe has not been run on the laptop yet (Rushi's PixelPet was running; quit it first).
+Deferred minors are listed in the M3 closing message.
+
+**Next:** Rushi decides on merging `m3` to `main`; a real-machine pass whenever a Mac/Linux box is to hand;
+then v2 (sliders pet maker).
+
 ## 2026-10-21 — PixelPet: M1 (Windows desktop) and M2 (pet, play, feed) built and merged to main
 
 **Repo:** `E:\AI\pixelpet` (git, no remote), `main` at `03e018a`. Spec `docs/superpowers/specs/2026-10-20-pixelpet-v1-design.md`,
