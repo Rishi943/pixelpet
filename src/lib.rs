@@ -1,4 +1,5 @@
 pub mod app;
+pub mod pets;
 pub mod brain;
 pub mod platform;
 pub mod rig;

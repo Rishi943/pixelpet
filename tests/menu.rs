@@ -1,6 +1,6 @@
 //! The right-click settings menu: copy, hit-testing, applying choices, font.
 
-use pixelpet::settings::{FullscreenMode, PetChoice, Settings, Size};
+use pixelpet::settings::{FullscreenMode, Settings, Size};
 use pixelpet::ui::font;
 use pixelpet::ui::menu::{apply, Action, Menu};
 
@@ -61,8 +61,8 @@ fn selected_cell_is_blue() {
 #[test]
 fn apply_changes_settings() {
     let mut s = Settings::default();
-    apply(&Action::SetPet(PetChoice::AlexTheBun), &mut s);
-    assert_eq!(s.pet, PetChoice::AlexTheBun);
+    apply(&Action::SetPet("alex-the-bun"), &mut s);
+    assert_eq!(s.pet, "alex-the-bun");
     apply(&Action::SetSize(Size::XL), &mut s);
     assert_eq!(s.size, Size::XL);
     apply(&Action::SetOpacity(25), &mut s);

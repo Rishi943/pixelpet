@@ -118,7 +118,7 @@ impl App {
             let _ = platform.set_autostart(settings.autostart.then_some(exe.as_path()));
         }
         let look = rig::look("classic");
-        let pet = settings.pet.pet();
+        let pet = crate::pets::find(&crate::pets::load_all(&crate::pets::pets_dir(&settings_path)), &settings.pet).design.pet;
         let mut brain = Brain::new(pet, seed(), 0.0, platform.work_area());
         let pin = std::env::var("PIXELPET_PIN").ok().and_then(|v| Anim::from_name(v.trim()));
         brain.pin(pin);
@@ -528,7 +528,7 @@ impl App {
             self.draw_menu();
             return;
         }
-        let old_pet = self.settings.pet;
+        let old_pet = self.settings.pet.clone();
         menu::apply(&action, &mut self.settings);
         let mut note = None;
         if action == Action::ToggleAutostart {
@@ -543,7 +543,7 @@ impl App {
             eprintln!("PixelPet: could not save settings: {e}");
         }
         if self.settings.pet != old_pet {
-            let pet = self.settings.pet.pet();
+            let pet = crate::pets::find(&crate::pets::load_all(&crate::pets::pets_dir(&self.settings_path)), &self.settings.pet).design.pet;
             let mut brain = Brain::new(pet, seed(), self.now(), self.platform.work_area());
             brain.place(self.last_x);
             brain.pin(self.pin);

@@ -2,12 +2,13 @@
 //! Layout is in art pixels; `draw` and `hit` take the pet's zoom as `scale`.
 
 use super::font;
-use crate::settings::{FullscreenMode, PetChoice, Settings, Size};
+use crate::pets::{ALEX_ID, BUN_ID};
+use crate::settings::{FullscreenMode, Settings, Size};
 use crate::window::Rgba;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    SetPet(PetChoice),
+    SetPet(&'static str),
     SetSize(Size),
     SetOpacity(u8),
     SetFullscreen(FullscreenMode),
@@ -31,7 +32,7 @@ pub struct Row {
 /// the app's job; this only changes fields.
 pub fn apply(a: &Action, s: &mut Settings) {
     match *a {
-        Action::SetPet(p) => s.pet = p,
+        Action::SetPet(p) => s.pet = p.to_string(),
         Action::SetSize(z) => s.size = z,
         Action::SetOpacity(o) => s.opacity = o,
         Action::SetFullscreen(f) => s.fullscreen = f,
@@ -119,8 +120,8 @@ impl Menu {
             &mut rows,
             Some("Pet:"),
             vec![
-                ("Alex".into(), Action::SetPet(PetChoice::Alex), s.pet == PetChoice::Alex),
-                ("Alex the bun".into(), Action::SetPet(PetChoice::AlexTheBun), s.pet == PetChoice::AlexTheBun),
+                ("Alex".into(), Action::SetPet(ALEX_ID), s.pet == ALEX_ID),
+                ("Alex the bun".into(), Action::SetPet(BUN_ID), s.pet == BUN_ID),
             ],
         );
         line(

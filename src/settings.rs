@@ -1,30 +1,7 @@
 //! The settings file: plain `key = value` lines. Unknown keys are kept when
 //! the file is rewritten; a missing or broken file means defaults.
 
-use crate::rig::Pet;
 use std::path::{Path, PathBuf};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PetChoice {
-    Alex,
-    AlexTheBun,
-}
-
-impl PetChoice {
-    pub fn pet(&self) -> Pet {
-        match self {
-            PetChoice::Alex => Pet::Dog,
-            PetChoice::AlexTheBun => Pet::Rabbit,
-        }
-    }
-
-    fn key(&self) -> &'static str {
-        match self {
-            PetChoice::Alex => "alex",
-            PetChoice::AlexTheBun => "alex-the-bun",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
@@ -63,7 +40,9 @@ pub enum FullscreenMode {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
-    pub pet: PetChoice,
+    /// The id of the pet on screen (`pets::ALEX_ID`, `pets::BUN_ID`, or a
+    /// saved pet's id). v1's `alex` / `alex-the-bun` are the same ids.
+    pub pet: String,
     pub size: Size,
     pub opacity: u8,
     pub fullscreen: FullscreenMode,
@@ -75,7 +54,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            pet: PetChoice::Alex,
+            pet: crate::pets::ALEX_ID.to_string(),
             size: Size::M,
             opacity: 100,
             fullscreen: FullscreenMode::Hide,
@@ -108,11 +87,7 @@ impl Settings {
             let (k, v) = (k.trim(), v.trim());
             let lv = v.to_ascii_lowercase();
             match k.to_ascii_lowercase().as_str() {
-                "pet" => match lv.as_str() {
-                    "alex" => s.pet = PetChoice::Alex,
-                    "alex-the-bun" => s.pet = PetChoice::AlexTheBun,
-                    _ => {}
-                },
+                "pet" if !lv.is_empty() => s.pet = lv,
                 "size" => match lv.as_str() {
                     "s" => s.size = Size::S,
                     "m" => s.size = Size::M,
@@ -144,7 +119,7 @@ impl Settings {
     /// Known keys in spec order, then unknown keys as they were read.
     pub fn to_text(&self) -> String {
         let mut t = String::from("# PixelPet settings\n");
-        t += &format!("pet = {}\n", self.pet.key());
+        t += &format!("pet = {}\n", self.pet);
         t += &format!("size = {}\n", self.size.key());
         t += &format!("opacity = {}\n", self.opacity);
         t += &format!("fullscreen = {}\n", if self.fullscreen == FullscreenMode::Hide { "hide" } else { "stay" });
@@ -194,6 +169,11 @@ pub fn settings_path(os: Os, exe: &Path, env: &dyn Fn(&str) -> Option<String>) -
             .map(|d| format!("{}/pixelpet/settings.txt", d.trim_end_matches('/'))),
     };
     found.map(PathBuf::from).unwrap_or(portable)
+}
+
+/// No settings file yet: PixelPet has never been run (or set up) here.
+pub fn first_launch(settings_path: &Path) -> bool {
+    !settings_path.exists()
 }
 
 /// Missing or unreadable file means defaults.
