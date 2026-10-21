@@ -25,5 +25,9 @@ CI machines prove the program starts and draws. They can't prove it feels right.
 - [ ] Only one PixelPet runs when it's launched twice.
 - [ ] No Dock icon (macOS) and no taskbar entry (Linux).
 - [ ] macOS: no permission prompt of any kind appears.
+- [ ] Clicking, petting or dragging the pet leaves the app you were typing in focused. (Windows: yes, by design. macOS: probably not yet; a click activates PixelPet. Linux: WM_HINTS asks the window manager not to focus it.)
+- [ ] macOS: change the display scaling, or move between a Retina and a non-Retina screen: the pet keeps its size and stays on the ground.
+- [ ] Linux: after a fullscreen video hides and shows the pet, it is still on top and still off the taskbar.
+- [ ] Linux Wayland session: the pet doesn't nap while you type in a native Wayland app (idle is off there), and hover ends when the cursor leaves.
 
 As of 2026-10-21 nobody has run these; Rushi has no Mac or Linux machine.

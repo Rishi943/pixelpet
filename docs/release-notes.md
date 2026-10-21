@@ -11,7 +11,7 @@ PixelPet is a small pixel pet that lives on your desktop. It walks along the bot
 PixelPet isn't signed yet, so each system asks before running it the first time:
 
 - **Windows:** "Windows protected your PC". Click **More info**, then **Run anyway**.
-- **macOS:** "PixelPet can't be opened". Right-click PixelPet in Applications, choose **Open**, then **Open** again. (Run it from Applications, not from the dmg, or launch-on-startup can't be turned on.)
+- **macOS:** "PixelPet can't be opened" (or "Apple could not verify…"). Click **Done**, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to PixelPet, then confirm. On macOS 14 and older, right-clicking PixelPet in Applications and choosing **Open** works too. Run it from Applications, not from the dmg, or launch on startup can't be turned on.
 - **Linux:** no warning.
 
 Right-click the pet for its menu: which pet, size, opacity, what happens over fullscreen apps, launch on startup, and quit.

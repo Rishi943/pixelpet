@@ -42,6 +42,32 @@ pub struct PetWindow {
     geom: Option<(i32, i32, usize, usize)>,
     opacity: Option<u8>,
     shown: bool,
+    state: WmState,
+}
+
+/// `_NET_WM_STATE`: on top, no taskbar or pager entry. Window managers drop
+/// it when a window is unmapped (EWMH), so it is written before every map.
+pub(crate) struct WmState {
+    prop: u32,
+    atoms: [u32; 3],
+}
+
+impl WmState {
+    pub(crate) fn intern(conn: &XCBConnection) -> Result<WmState, String> {
+        Ok(WmState {
+            prop: atom(conn, "_NET_WM_STATE")?,
+            atoms: [
+                atom(conn, "_NET_WM_STATE_ABOVE")?,
+                atom(conn, "_NET_WM_STATE_SKIP_TASKBAR")?,
+                atom(conn, "_NET_WM_STATE_SKIP_PAGER")?,
+            ],
+        })
+    }
+
+    pub(crate) fn write(&self, conn: &XCBConnection, xid: u32) -> Result<(), x11rb::errors::ConnectionError> {
+        conn.change_property32(PropMode::REPLACE, xid, self.prop, AtomEnum::ATOM, &self.atoms)?;
+        conn.flush()
+    }
 }
 
 fn atom(conn: &XCBConnection, name: &str) -> Result<u32, String> {
@@ -72,15 +98,14 @@ impl PetWindow {
         let depth = conn.get_geometry(xid).map_err(|e| e.to_string())?.reply().map_err(|e| e.to_string())?.depth;
         let gc = conn.generate_id().map_err(|e| e.to_string())?;
         conn.create_gc(gc, xid, &CreateGCAux::new()).map_err(|e| e.to_string())?;
-        // no taskbar or pager entry; on top. Set before the first map so the
-        // window manager reads it then.
-        let state = atom(&conn, "_NET_WM_STATE")?;
-        let wanted = [
-            atom(&conn, "_NET_WM_STATE_ABOVE")?,
-            atom(&conn, "_NET_WM_STATE_SKIP_TASKBAR")?,
-            atom(&conn, "_NET_WM_STATE_SKIP_PAGER")?,
-        ];
-        conn.change_property32(PropMode::REPLACE, xid, state, AtomEnum::ATOM, &wanted).map_err(|e| e.to_string())?;
+        let state = WmState::intern(&conn)?;
+        state.write(&conn, xid).map_err(|e| e.to_string())?;
+        if !focusable {
+            // WM_HINTS input = False: a click-to-focus window manager leaves
+            // the user's window focused (Windows: WS_EX_NOACTIVATE)
+            conn.change_property32(PropMode::REPLACE, xid, AtomEnum::WM_HINTS, AtomEnum::WM_HINTS, &[1, 0, 0, 0, 0, 0, 0, 0, 0])
+                .map_err(|e| e.to_string())?;
+        }
         let cm_atom = atom(&conn, &format!("_NET_WM_CM_S{screen}"))?;
         conn.flush().map_err(|e| e.to_string())?;
         let mut w = PetWindow {
@@ -97,6 +122,7 @@ impl PetWindow {
             geom: None,
             opacity: None,
             shown: false,
+            state,
         };
         w.composited = w.compositor_running();
         Ok(w)
@@ -117,6 +143,7 @@ impl PetWindow {
     }
 
     pub fn show(&self) {
+        let _ = self.state.write(&self.conn, self.xid);
         self.win.set_visible(true);
     }
 
@@ -221,5 +248,32 @@ impl Drop for PetWindow {
         }
         let _ = self.conn.free_gc(self.gc);
         let _ = self.conn.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Run under a real X server (CI: xvfb-run). No window manager there, so
+    //! the test removes the state itself, as a WM does on unmap.
+    use super::*;
+    use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
+
+    #[test]
+    fn state_is_written_again_after_the_wm_drops_it() {
+        let (conn, screen) = XCBConnection::connect(None).expect("an X server (run under xvfb-run)");
+        let s = &conn.setup().roots[screen];
+        let w = conn.generate_id().unwrap();
+        conn.create_window(0, w, s.root, 0, 0, 10, 10, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new()).unwrap();
+        let st = WmState::intern(&conn).unwrap();
+        let read = || -> Vec<u32> {
+            let r = conn.get_property(false, w, st.prop, AtomEnum::ATOM, 0, 16).unwrap().reply().unwrap();
+            r.value32().map(|v| v.collect()).unwrap_or_default()
+        };
+        st.write(&conn, w).unwrap();
+        assert_eq!(read(), st.atoms);
+        conn.delete_property(w, st.prop).unwrap();
+        assert!(read().is_empty());
+        st.write(&conn, w).unwrap();
+        assert_eq!(read(), st.atoms, "show() must restore on-top and skip-taskbar");
     }
 }

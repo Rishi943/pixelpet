@@ -12,6 +12,10 @@ sed "s/@VERSION@/$version/g" "$here/Info.plist" > "$app/Info.plist"
 cargo run -q --release --example make_icon -- --pngs dist/icons
 iconutil -c icns dist/icons/PixelPet.iconset -o "$app/Resources/PixelPet.icns"
 plutil -lint "$app/Info.plist"
+# ad-hoc signature: still "unsigned" (no developer ID), but a quarantined
+# download then shows the "Open Anyway" warning, not "PixelPet is damaged"
+codesign --force --sign - dist/PixelPet.app
+codesign --verify --strict --verbose=2 dist/PixelPet.app
 mkdir -p dist/dmg && cp -R dist/PixelPet.app dist/dmg/ && ln -s /Applications dist/dmg/Applications
 hdiutil create -volname PixelPet -srcfolder dist/dmg -ov -format UDZO PixelPet.dmg
 echo "made PixelPet.dmg"

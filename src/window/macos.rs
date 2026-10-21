@@ -29,7 +29,9 @@ pub struct PetWindow {
     layer: *mut AnyObject,
     /// the image the layer shows; kept alive as long as it is shown
     image: Option<CGImage>,
-    geom: Option<(i32, i32, usize, usize)>,
+    /// last (x, y, w, h) sent, and the scale it was sent at: winit converts
+    /// physical sizes to points with the scale of the moment
+    geom: Option<(i32, i32, usize, usize, f64)>,
     opacity: Option<u8>,
     shown: bool,
 }
@@ -107,10 +109,13 @@ impl PetWindow {
         if img.w == 0 || img.h == 0 || img.px.len() != img.w * img.h * 4 {
             return Err("bad image size".into());
         }
-        if self.geom.map(|g| (g.2, g.3)) != Some((img.w, img.h)) {
+        let scale = self.win.scale_factor();
+        let resize = self.geom.map(|g| (g.2, g.3, g.4)) != Some((img.w, img.h, scale));
+        if resize {
             let _ = self.win.request_inner_size(PhysicalSize::new(img.w as u32, img.h as u32));
         }
-        if self.geom.map(|g| (g.0, g.1)) != Some((x, y)) {
+        // a resize keeps Cocoa's bottom-left corner: put the top-left back
+        if resize || self.geom.map(|g| (g.0, g.1)) != Some((x, y)) {
             self.win.set_outer_position(PhysicalPosition::new(x, y));
         }
         // premultiplied RGBA, as CoreGraphics wants it
@@ -135,7 +140,6 @@ impl PetWindow {
             kCGRenderingIntentDefault,
         );
         unsafe {
-            let scale = self.win.scale_factor();
             let _: () = msg_send![self.layer, setContentsScale: scale];
             // a foreign-types `&CGImageRef` is the CGImageRef pointer itself
             let contents = &*image as *const core_graphics::image::CGImageRef as *mut AnyObject;
@@ -150,7 +154,7 @@ impl PetWindow {
             self.show();
             self.shown = true;
         }
-        self.geom = Some((x, y, img.w, img.h));
+        self.geom = Some((x, y, img.w, img.h, scale));
         Ok(())
     }
 }
