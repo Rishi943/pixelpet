@@ -32,7 +32,6 @@ const PX: i32 = 6;
 const PY: i32 = 18;
 const PW: i32 = 92;
 const PH: i32 = 96;
-const GROUND: i32 = PY + PH - 10;
 const RX: i32 = 106;
 const RW: i32 = W as i32 - RX - 6;
 const Y0: i32 = PY + 14;
@@ -42,14 +41,17 @@ const BAR_W: i32 = RW - 40;
 const SW_X: i32 = RX + 40;
 const SW_STEP: i32 = 9;
 
-// the Photos step: the photo's box under the controls, and the marker colours
-// On it the preview is a narrow box with the pet at half size, so the photo
-// gets a wider column.
-const QW: i32 = 50;
+/// The Photos step's bigger window, so points can be placed with care.
+pub const PHOTOS_W: usize = 320;
+pub const PHOTOS_H: usize = 200;
+// On it the preview box is a reference pet with every point numbered, and
+// the photo's box sits under the controls in the right-hand column.
+const QW: i32 = 100;
+const QH: i32 = PHOTOS_H as i32 - 20 - PY;
 const QX: i32 = PX + QW + 8;
-const QR: i32 = W as i32 - QX - 6;
+const QR: i32 = PHOTOS_W as i32 - QX - 6;
 const AY: i32 = 50;
-const AH: i32 = PY + PH - AY;
+const AH: i32 = PY + QH - AY;
 const MARK: [u8; 3] = [0xFF, 0xD0, 0x30];
 const AIM: [u8; 3] = [0xE0, 0x30, 0x30];
 const ERR: [u8; 3] = [0xB0, 0x20, 0x20];
@@ -64,7 +66,7 @@ const LINE_MAX: usize = 26;
 const NAMES: [&str; 8] = ["Biscuit", "Pixel", "Mango", "Pepper", "Comet", "Noodle", "Toffee", "Bean"];
 // the Photos step's prompt lines when there is no point to ask for
 const HELP_NONE: &str = "Open a side-on photo";
-const HELP_POSE: &str = "Standing, sitting, other?";
+const HELP_POSE: &str = "First, pick the pose";
 const HELP_DONE: &str = "All done. Press Next.";
 
 fn step_name(s: Step) -> &'static str {
@@ -451,9 +453,7 @@ impl Maker {
         self.grab = None;
         let (ix, iy) = (x.floor() as i32, y.floor() as i32);
         let (_, regions) = self.layout();
-        let Some(hit) = regions.iter().find(|r| ix >= r.x && ix < r.x + r.w && iy >= r.y && iy < r.y + r.h).map(|r| r.hit) else {
-            return if self.step() == Step::Photos { self.click_photo(x, y) } else { Outcome::Nothing };
-        };
+        let Some(hit) = regions.iter().find(|r| ix >= r.x && ix < r.x + r.w && iy >= r.y && iy < r.y + r.h).map(|r| r.hit) else { return if self.step() == Step::Photos { self.click_photo(x, y) } else { Outcome::Nothing } };
         let pet = self.design.pet;
         match hit {
             Hit::Dot(i) => self.go(i),
@@ -692,24 +692,24 @@ impl Maker {
     /// ground line, in the middle, clipped to the box.
     pub fn draw(&self, scale: u32, preview: &Rgba, anchor: (i32, i32)) -> Rgba {
         let (art, _) = self.layout();
+        let (w, h) = self.size();
         let z = scale.max(1) as usize;
-        let mut img = Rgba::new(W * z, H * z);
-        for y in 0..H * z {
-            for x in 0..W * z {
-                let c = art[(y / z) * W + x / z];
-                img.px[(y * W * z + x) * 4..][..4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+        let mut img = Rgba::new(w * z, h * z);
+        for y in 0..h * z {
+            for x in 0..w * z {
+                let c = art[(y / z) * w + x / z];
+                img.px[(y * w * z + x) * 4..][..4].copy_from_slice(&[c[0], c[1], c[2], 255]);
             }
         }
         self.draw_photo(&mut img, z);
         let s = z as i32;
-        let photos = self.step() == Step::Photos;
-        // on the Photos step the pet is drawn at half size, every other pixel
-        let (pw, half) = if photos { (QW, 2) } else { (PW, 1) };
-        let (bx, by) = ((PX * 2 + pw) * s / 2 - anchor.0 / half, (GROUND + 1) * s - anchor.1 / half);
-        let (x0, y0, x1, y1) = ((PX + 1) * s, (PY + 12) * s, (PX + pw - 1) * s, (PY + PH - 1) * s);
-        for py in (0..preview.h).step_by(half as usize) {
-            for px in (0..preview.w).step_by(half as usize) {
-                let (sx, sy) = (bx + px as i32 / half, by + py as i32 / half);
+        let (pw, ph) = self.preview_box();
+        let ground = PY + ph - 10;
+        let (bx, by) = ((PX * 2 + pw) * s / 2 - anchor.0, (ground + 1) * s - anchor.1);
+        let (x0, y0, x1, y1) = ((PX + 1) * s, (PY + 12) * s, (PX + pw - 1) * s, (PY + ph - 1) * s);
+        for py in 0..preview.h {
+            for px in 0..preview.w {
+                let (sx, sy) = (bx + px as i32, by + py as i32);
                 if sx < x0 || sy < y0 || sx >= x1 || sy >= y1 {
                     continue;
                 }
@@ -717,35 +717,71 @@ impl Maker {
                 if p[3] == 0 {
                     continue;
                 }
-                let d = &mut img.px[(sy as usize * W * z + sx as usize) * 4..][..4];
+                let d = &mut img.px[(sy as usize * img.w + sx as usize) * 4..][..4];
                 let a = p[3] as u32;
                 for k in 0..3 {
                     d[k] = ((p[k] as u32 * a + d[k] as u32 * (255 - a) + 127) / 255) as u8;
                 }
             }
         }
-        // on the Photos step, the part being asked for, marked on the pet
-        if let (Step::Photos, Some(pt)) = (self.step(), self.next_point()) {
-            let (fx, fy) = pet_spot(self.design.pet, pt);
-            let unit = preview.w as f32 / 3.1 / half as f32;
-            let (cx, cy) = ((PX * 2 + pw) as f32 * s as f32 / 2.0 + fx * unit, (GROUND + 1) as f32 * s as f32 + fy * unit);
+        // on the Photos step the pet is a reference: every point numbered as
+        // on the photo, the one being asked for in red
+        if self.step() == Step::Photos {
+            let pet = self.design.pet;
+            let next = self.next_point();
+            let unit = preview.w as f32 / 3.1;
             let clip = (x0, y0, x1, y1);
-            disc(&mut img, cx, cy, 2.0 * s as f32, OUTLINE, clip);
-            disc(&mut img, cx, cy, 1.2 * s as f32, AIM, clip);
+            // the one being asked for last, so it is on top
+            let mut order: Vec<(usize, Point)> = measure::points(pet).iter().copied().enumerate().collect();
+            order.sort_by_key(|&(_, pt)| Some(pt) == next);
+            for (i, pt) in order {
+                let (fx, fy) = pet_spot(pet, pt);
+                let (cx, cy) = ((PX * 2 + pw) as f32 * s as f32 / 2.0 + fx * unit, (ground + 1) as f32 * s as f32 + fy * unit);
+                let (r, col) = if Some(pt) == next { (2.0, AIM) } else { (1.3, MARK) };
+                disc(&mut img, cx, cy, (r + 0.8) * s as f32, OUTLINE, clip);
+                disc(&mut img, cx, cy, r * s as f32, col, clip);
+                if Some(pt) == next {
+                    let digit = char::from_digit(i as u32 + 1, 10).unwrap_or('?');
+                    let (lx, ly) = ((cx + 3.0 * s as f32).round() as i32, (cy - 9.0 * s as f32).round() as i32);
+                    for (dx, dy, c) in [(-1, 0, OUTLINE), (1, 0, OUTLINE), (0, -1, OUTLINE), (0, 1, OUTLINE), (0, 0, SEL_TEXT)] {
+                        glyph_px(&mut img, digit, lx + dx * s, ly + dy * s, s, c, clip);
+                    }
+                }
+            }
         }
         img
     }
 
+    /// The window's size in UI pixels: bigger on the Photos step.
+    pub fn size(&self) -> (usize, usize) {
+        if self.step() == Step::Photos {
+            (PHOTOS_W, PHOTOS_H)
+        } else {
+            (W, H)
+        }
+    }
+
+    /// The preview box's width and height for this step.
+    fn preview_box(&self) -> (i32, i32) {
+        if self.step() == Step::Photos {
+            (QW, QH)
+        } else {
+            (PW, PH)
+        }
+    }
+
     /// One layout pass: the window's pixels at scale 1, and what is where.
     fn layout(&self) -> (Vec<[u8; 3]>, Vec<Region>) {
-        let mut c = Canvas { art: vec![FILL; W * H], regions: vec![] };
-        c.rect(0, 0, W as i32, H as i32, OUTLINE);
-        c.rect(1, 1, W as i32 - 2, H as i32 - 2, FILL);
+        let (cw, ch) = self.size();
+        let mut c = Canvas { art: vec![FILL; cw * ch], w: cw, h: ch, regions: vec![] };
+        let (w, h) = (cw as i32, ch as i32);
+        c.rect(0, 0, w, h, OUTLINE);
+        c.rect(1, 1, w - 2, h - 2, FILL);
         c.text("Make a pet", 6, 5, TEXT);
-        c.button("x", W as i32 - 12, 3, false, Hit::Close);
+        c.button("x", w - 12, 3, false, Hit::Close);
         let n = self.steps().len();
         for i in 0..n {
-            let x = W as i32 - 16 - (n - i) as i32 * 7;
+            let x = w - 16 - (n - i) as i32 * 7;
             if i == self.step {
                 c.rect(x, 6, 5, 5, SEL);
             } else if i <= self.reached {
@@ -757,17 +793,18 @@ impl Maker {
                 c.region(format!("dot:{i}"), x - 1, 5, 7, 7, Hit::Dot(i));
             }
         }
-        c.rect(1, 15, W as i32 - 2, 1, OUTLINE);
+        c.rect(1, 15, w - 2, 1, OUTLINE);
         // the preview box (the pet is drawn into it by `draw`)
-        let (pw, rx) = if self.step() == Step::Photos { (QW, QX) } else { (PW, RX) };
-        c.boxed(PX, PY, pw, PH, SHADE, OUTLINE);
-        c.rect(PX + 4, GROUND, pw - 8, 1, DIM);
-        let shown: String = self.name.chars().take(if pw == QW { 7 } else { 14 }).collect();
+        let (pw, ph) = self.preview_box();
+        let rx = if self.step() == Step::Photos { QX } else { RX };
+        c.boxed(PX, PY, pw, ph, SHADE, OUTLINE);
+        c.rect(PX + 4, PY + ph - 10, pw - 8, 1, DIM);
+        let shown: String = self.name.chars().take(14).collect();
         c.text(&shown, PX + (pw - font::text_width(&shown) as i32) / 2, PY + 4, TEXT);
         // the step
         let count = format!("{}/{}", self.step + 1, n);
         c.text(step_name(self.step()), rx, PY + 1, TEXT);
-        c.text(&count, W as i32 - 6 - font::text_width(&count) as i32, PY + 1, DIM);
+        c.text(&count, w - 6 - font::text_width(&count) as i32, PY + 1, DIM);
         let pet = self.design.pet;
         match self.step() {
             Step::Animal => {
@@ -846,14 +883,14 @@ impl Maker {
             }
         }
         // the bottom row
-        c.rect(1, H as i32 - 16, W as i32 - 2, 1, OUTLINE);
-        let by = H as i32 - 13;
+        c.rect(1, h - 16, w - 2, 1, OUTLINE);
+        let by = h - 13;
         c.button("Random", PX + 2, by, false, Hit::Random);
         if self.step > 0 {
-            c.button("< Back", RX, by, false, Hit::Back);
+            c.button("< Back", rx, by, false, Hit::Back);
         }
         let next = if self.step == n - 1 { "Done" } else { "Next >" };
-        c.button(next, W as i32 - 6 - (font::text_width(next) as i32 + 6), by, true, Hit::Next);
+        c.button(next, w - 6 - (font::text_width(next) as i32 + 6), by, true, Hit::Next);
         (c.art, c.regions)
     }
 
@@ -1001,13 +1038,15 @@ pub fn all_copy() -> Vec<&'static str> {
 
 struct Canvas {
     art: Vec<[u8; 3]>,
+    w: usize,
+    h: usize,
     regions: Vec<Region>,
 }
 
 impl Canvas {
     fn put(&mut self, x: i32, y: i32, c: [u8; 3]) {
-        if x >= 0 && y >= 0 && (x as usize) < W && (y as usize) < H {
-            self.art[y as usize * W + x as usize] = c;
+        if x >= 0 && y >= 0 && (x as usize) < self.w && (y as usize) < self.h {
+            self.art[y as usize * self.w + x as usize] = c;
         }
     }
 

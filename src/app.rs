@@ -8,7 +8,7 @@ use crate::platform::{self, Platform, Rect};
 use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
 use crate::scene::{Hit, Part, Scene, Sprite};
-use crate::ui::maker::{self, Maker, MakerKey, Outcome};
+use crate::ui::maker::{Maker, MakerKey, Outcome};
 use crate::ui::menu::{self, Action, Menu};
 use crate::view::View;
 use crate::window::PetWindow;
@@ -48,6 +48,10 @@ struct BubbleOpen {
 struct MakerOpen {
     win: PetWindow,
     maker: Maker,
+    /// the Size setting's zoom, the window's size in UI px, and the zoom it
+    /// is drawn at (smaller when that size wouldn't fit the screen)
+    zoom: u32,
+    size: (usize, usize),
     scale: u32,
     left: i32,
     top: i32,
@@ -675,14 +679,12 @@ impl App {
             Some(r) => Maker::edit(r, seed()),
             None => Maker::new(seed()),
         };
-        let scale = self.settings.size.zoom();
-        let work = self.platform.work_area();
-        let (w, h) = ((maker::W as u32 * scale) as i32, (maker::H as u32 * scale) as i32);
-        let left = work.x + ((work.w - w) / 2).max(0);
-        let top = work.y + ((work.h - h) / 2).max(0);
+        let zoom = self.settings.size.zoom();
+        let size = maker.size();
+        let (scale, left, top) = maker_place(zoom, size, self.platform.work_area());
         let now = self.now();
         let anim = maker.preview_anim();
-        self.maker = Some(MakerOpen { win, maker, scale, left, top, at: (0.0, 0.0), held: false, anim_start: now, anim, drawn_at: f64::NEG_INFINITY });
+        self.maker = Some(MakerOpen { win, maker, zoom, size, scale, left, top, at: (0.0, 0.0), held: false, anim_start: now, anim, drawn_at: f64::NEG_INFINITY });
         self.draw_maker(now, true);
         if let Some(m) = &self.maker {
             m.win.focus();
@@ -695,6 +697,11 @@ impl App {
         let look = self.look;
         let Some(m) = self.maker.as_mut() else { return };
         let now_please = now_please || matches!(m.maker.tick(now), Outcome::Redraw);
+        // the Photos step is bigger: fit it on the screen and re-centre
+        if m.maker.size() != m.size {
+            m.size = m.maker.size();
+            (m.scale, m.left, m.top) = maker_place(m.zoom, m.size, self.platform.work_area());
+        }
         if !now_please && now - m.drawn_at < 1.0 / 12.0 {
             return;
         }
@@ -934,6 +941,15 @@ fn autostart_note(e: &std::io::Error) -> String {
 }
 
 /// A rig frame scaled up by `zoom`, nearest neighbour.
+/// The maker's zoom and top-left: the Size zoom, or less if the window
+/// would not fit the work area, centred on it.
+fn maker_place(zoom: u32, (w, h): (usize, usize), work: Rect) -> (u32, i32, i32) {
+    let fits = |z: u32| (w as i32 * z as i32) <= work.w && (h as i32 * z as i32) <= work.h;
+    let scale = (1..=zoom.max(1)).rev().find(|&z| fits(z)).unwrap_or(1);
+    let (pw, ph) = (w as i32 * scale as i32, h as i32 * scale as i32);
+    (scale, work.x + ((work.w - pw) / 2).max(0), work.y + ((work.h - ph) / 2).max(0))
+}
+
 fn zoomed(f: &rig::Frame, zoom: u32) -> crate::window::Rgba {
     let z = zoom.max(1) as usize;
     let mut img = crate::window::Rgba::new(f.w * z, f.h * z);

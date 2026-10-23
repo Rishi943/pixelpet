@@ -110,10 +110,6 @@ impl Pts {
         }
         r
     }
-
-    fn all(&self) -> Vec<P> {
-        [self.nose, self.eye, self.ear, self.sh, self.tb, self.tt, self.chest, self.fp, self.bp].into_iter().flatten().collect()
-    }
 }
 
 fn dist(a: P, b: P) -> f64 {
@@ -216,7 +212,13 @@ fn to_lab(rgb: [u8; 3]) -> Lab {
     let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
     let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
-    let f = |t: f64| if t > 0.008856 { t.cbrt() } else { 7.787 * t + 16.0 / 116.0 };
+    let f = |t: f64| {
+        if t > 0.008856 {
+            t.cbrt()
+        } else {
+            7.787 * t + 16.0 / 116.0
+        }
+    };
     let (fx, fy, fz) = (f(x), f(y), f(z));
     [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
 }
@@ -224,7 +226,13 @@ fn to_lab(rgb: [u8; 3]) -> Lab {
 fn from_lab([l, a, b]: Lab) -> u32 {
     let fy = (l + 16.0) / 116.0;
     let (fx, fz) = (fy + a / 500.0, fy - b / 200.0);
-    let inv = |t: f64| if t * t * t > 0.008856 { t * t * t } else { (t - 16.0 / 116.0) / 7.787 };
+    let inv = |t: f64| {
+        if t * t * t > 0.008856 {
+            t * t * t
+        } else {
+            (t - 16.0 / 116.0) / 7.787
+        }
+    };
     let (x, y, z) = (inv(fx) * 0.95047, inv(fy), inv(fz) * 1.08883);
     let r = 3.2406 * x - 1.5372 * y - 0.4986 * z;
     let g = -0.9689 * x + 1.8758 * y + 0.0415 * z;
@@ -240,8 +248,6 @@ fn sq(a: &Lab, b: &Lab) -> f64 {
 /// An area of the photo, worked out from the points.
 enum Mask {
     Disc(P, f32),
-    /// Every point within `r` of the segment a-b.
-    Capsule(P, P, f32),
     /// The strip along a-b from 15% to 85% of its length, `w` to each side.
     Band(P, P, f32),
 }
@@ -250,7 +256,7 @@ impl Mask {
     fn bounds(&self) -> (f32, f32, f32, f32) {
         let (a, b, r) = match *self {
             Mask::Disc(c, r) => (c, c, r),
-            Mask::Capsule(a, b, r) | Mask::Band(a, b, r) => (a, b, r),
+            Mask::Band(a, b, r) => (a, b, r),
         };
         (a.0.min(b.0) - r, a.1.min(b.1) - r, a.0.max(b.0) + r, a.1.max(b.1) + r)
     }
@@ -258,16 +264,12 @@ impl Mask {
     fn has(&self, x: f32, y: f32) -> bool {
         match *self {
             Mask::Disc(c, r) => (x - c.0).powi(2) + (y - c.1).powi(2) <= r * r,
-            Mask::Capsule(a, b, r) | Mask::Band(a, b, r) => {
+            Mask::Band(a, b, r) => {
                 let (ux, uy) = (b.0 - a.0, b.1 - a.1);
                 let len2 = (ux * ux + uy * uy).max(1e-6);
                 let t = ((x - a.0) * ux + (y - a.1) * uy) / len2;
-                if let Mask::Band(..) = self {
-                    let off = ((x - a.0) * uy - (y - a.1) * ux) / len2.sqrt();
-                    return t > 0.15 && t < 0.85 && off.abs() <= r;
-                }
-                let t = t.clamp(0.0, 1.0);
-                (x - (a.0 + t * ux)).powi(2) + (y - (a.1 + t * uy)).powi(2) <= r * r
+                let off = ((x - a.0) * uy - (y - a.1) * ux) / len2.sqrt();
+                t > 0.15 && t < 0.85 && off.abs() <= r
             }
         }
     }
@@ -278,6 +280,11 @@ enum Pick {
     Dominant,
     Darkest,
     Lightest,
+    /// The middle of the three by lightness.
+    Middle,
+    /// The darkest if it covers a third of the area (a GSD's black mask),
+    /// else the most common (a beagle's white muzzle round a black nose).
+    Mask,
 }
 
 /// One colour area and where to look for it.
@@ -306,10 +313,13 @@ fn jobs(pet: Pet, p: &Pts) -> Vec<Job> {
     };
     match pet {
         Pet::Dog => {
-            if let (Some(sh), Some(fp)) = (p.sh, p.fp) {
-                v.push(Job { fam: fam::TAN, mask: Mask::Capsule(lerp(fp, sh, 0.15), lerp(fp, sh, 0.7), 0.045 * u), pick: Pick::Dominant });
-            }
             if let (Some(sh), Some(tb)) = (p.sh, p.tb) {
+                // The body below the back: saddle, coat and belly. The coat is
+                // the middle one (from a leg, a beagle's coat came out white).
+                let (a, b) = (lerp(sh, tb, 0.0), lerp(sh, tb, 1.0));
+                let down = (0.0, 0.3 * u);
+                let (a2, b2) = ((a.0 + down.0, a.1 + down.1), (b.0 + down.0, b.1 + down.1));
+                v.push(Job { fam: fam::TAN, mask: Mask::Band(a2, b2, 0.3 * u), pick: Pick::Middle });
                 v.push(Job { fam: fam::BLACK, mask: Mask::Band(sh, tb, 0.2 * u), pick: Pick::Darkest });
             }
             if let Some(c) = p.chest {
@@ -317,7 +327,7 @@ fn jobs(pet: Pet, p: &Pts) -> Vec<Job> {
             }
             if let (Some(n), Some(e)) = (p.nose, p.eye) {
                 let r = 0.25 * dist(n, e) as f32;
-                v.push(Job { fam: fam::MASK, mask: Mask::Disc(lerp(n, e, 0.4), r), pick: Pick::Darkest });
+                v.push(Job { fam: fam::MASK, mask: Mask::Disc(lerp(n, e, 0.4), r), pick: Pick::Mask });
             }
         }
         Pet::Rabbit => {
@@ -358,37 +368,9 @@ fn border_median(ph: &Photo) -> [f64; 3] {
     [median(&mut ch[0]), median(&mut ch[1]), median(&mut ch[2])]
 }
 
-/// Grey-world white balance: per-channel gains that make the average of the
-/// photo outside the pet grey, keeping its brightness. The pet's own box (the
-/// clicked points, padded) is left out so its colours don't skew it.
-fn gains(ph: &Photo, pts: &[P]) -> [f64; 3] {
-    let pad = 0.05 * ph.w.max(ph.h) as f32;
-    let bx = pts.iter().fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)));
-    let mut sum = [[0.0f64; 3]; 2]; // [outside, all]
-    let mut n = [0u64; 2];
-    for y in 0..ph.h {
-        for x in 0..ph.w {
-            let c = px(ph, x, y);
-            let inside = !pts.is_empty()
-                && (x as f32) >= bx.0 - pad
-                && (x as f32) <= bx.2 + pad
-                && (y as f32) >= bx.1 - pad
-                && (y as f32) <= bx.3 + pad;
-            for k in [1, 0] {
-                if k == 1 || !inside {
-                    n[k] += 1;
-                    for i in 0..3 {
-                        sum[k][i] += c[i] as f64;
-                    }
-                }
-            }
-        }
-    }
-    let k = if n[0] * 100 >= n[1] { 0 } else { 1 };
-    let m = sum[k].map(|s| s / n[k].max(1) as f64);
-    let lum = (m[0] + m[1] + m[2]) / 3.0;
-    m.map(|c| if c > 1.0 { (lum / c).clamp(0.7, 1.4) } else { 1.0 })
-}
+// No white balance: grey-world turned a beagle in front of green leaves
+// blue, and balancing from grey pixels read a warm road as a cast. Taken
+// as they are, both the beagle and Alex's studio photos came out closer.
 
 /// Three-colour k-means in Lab with a fixed seed. Returns each sample's
 /// cluster.
@@ -431,7 +413,7 @@ fn kmeans(lab: &[Lab]) -> Vec<usize> {
 }
 
 /// The colour of one job on one photo, as Lab; None if it found no pet.
-fn sample(ph: &Photo, job: &Job, bg: [f64; 3], gain: [f64; 3], strict: bool) -> Option<Lab> {
+fn sample(ph: &Photo, job: &Job, bg: [f64; 3], strict: bool) -> Option<Lab> {
     let (x0, y0, x1, y1) = job.mask.bounds();
     let (xa, xb) = ((x0.floor().max(0.0)) as u32, (x1.ceil().max(0.0) as u32).min(ph.w.saturating_sub(1)));
     let (ya, yb) = ((y0.floor().max(0.0)) as u32, (y1.ceil().max(0.0) as u32).min(ph.h.saturating_sub(1)));
@@ -449,18 +431,14 @@ fn sample(ph: &Photo, job: &Job, bg: [f64; 3], gain: [f64; 3], strict: bool) -> 
     // (Sunlit fur reads near white; the lightest pick skips that glare.)
     let glare = if matches!(job.pick, Pick::Lightest) { 85.0 } else { 101.0 };
     let tongue = |l: &Lab| (l[1] > 28.0 && l[2] < 0.6 * l[1]) || l[0] > glare;
-    let balanced = |c: &[u8; 3]| [0, 1, 2].map(|i| (c[i] as f64 * gain[i]).round().clamp(0.0, 255.0) as u8);
     let mut keep: Vec<([u8; 3], Lab)> = all
         .iter()
         .filter(|c| far(c) && !(strict && c.iter().copied().min().unwrap_or(0) > 225))
-        .map(|c| {
-            let b = balanced(c);
-            (b, to_lab(b))
-        })
+        .map(|&c| (c, to_lab(c)))
         .filter(|(_, l)| !(strict && tongue(l)))
         .collect();
     if keep.len() < 30 {
-        keep = all.iter().map(|c| balanced(c)).map(|b| (b, to_lab(b))).collect();
+        keep = all.iter().map(|&c| (c, to_lab(c))).collect();
     }
     if keep.len() < 30 {
         return None;
@@ -479,11 +457,30 @@ fn sample(ph: &Photo, job: &Job, bg: [f64; 3], gain: [f64; 3], strict: bool) -> 
     let n = labs.len();
     let ok = |j: usize| st[j].0 > 0 && (st[j].0 * 10 >= n || matches!(job.pick, Pick::Dominant));
     let mean = |j: usize| st[j].1 / st[j].0 as f64;
-    let best = (0..3).filter(|&j| ok(j)).max_by(|&a, &b| match job.pick {
-        Pick::Dominant => st[a].0.cmp(&st[b].0),
-        Pick::Darkest => mean(b).total_cmp(&mean(a)),
-        Pick::Lightest => mean(a).total_cmp(&mean(b)),
-    })?;
+    let best = if let Pick::Middle = job.pick {
+        // between the saddle and the white: the middle one, or with only two
+        // the lighter
+        let mut by_l: Vec<usize> = (0..3).filter(|&j| ok(j)).collect();
+        by_l.sort_by(|&a, &b| mean(a).total_cmp(&mean(b)));
+        *by_l.get(by_l.len() / 2)?
+    } else {
+        (0..3).filter(|&j| ok(j)).max_by(|&a, &b| match job.pick {
+            Pick::Darkest => mean(b).total_cmp(&mean(a)),
+            Pick::Lightest => mean(a).total_cmp(&mean(b)),
+            _ => st[a].0.cmp(&st[b].0),
+        })?
+    };
+    let best = match job.pick {
+        Pick::Mask => {
+            let dark = (0..3).filter(|&j| st[j].0 > 0).min_by(|&a, &b| mean(a).total_cmp(&mean(b)))?;
+            if st[dark].0 * 3 >= n {
+                dark
+            } else {
+                best
+            }
+        }
+        _ => best,
+    };
     let mut ch: [Vec<f64>; 3] = Default::default();
     for (l, _) in labs.iter().zip(&of).filter(|(_, &o)| o == best) {
         for i in 0..3 {
@@ -521,9 +518,9 @@ pub fn fit(base: &Design, photos: &[Marked]) -> Fit {
         if todo.is_empty() || m.photo.w == 0 || m.photo.h == 0 || m.photo.rgb.len() < (m.photo.w * m.photo.h * 3) as usize {
             continue;
         }
-        let (bg, gain) = (border_median(m.photo), gains(m.photo, &pts.all()));
+        let bg = border_median(m.photo);
         for job in &todo {
-            if let Some(lab) = sample(m.photo, job, bg, gain, base.pet == Pet::Dog) {
+            if let Some(lab) = sample(m.photo, job, bg, base.pet == Pet::Dog) {
                 match cols.iter_mut().find(|(f, _)| *f == job.fam) {
                     Some((_, v)) => v.push(lab),
                     None => cols.push((job.fam, vec![lab])),

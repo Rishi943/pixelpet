@@ -476,7 +476,7 @@ fn a_sixth_photo_is_refused_and_the_message_goes_away() {
     m.photo_error("Not a photo: caf\u{e9}");
     assert_eq!(m.error(), Some("Not a photo: caf?"));
     let img = m.draw(2, &Rgba::new(1, 1), (0, 0));
-    assert_eq!(img.w, maker::W * 2);
+    assert_eq!(img.w, maker::PHOTOS_W * 2);
 }
 
 #[test]
@@ -536,7 +536,7 @@ fn the_photos_step_draws_inside_the_window_with_the_pet_marked() {
         let mut m = on_photos(30, 20);
         let blank = Rgba::new(1, 1);
         let img = m.draw(z, &blank, (0, 0));
-        assert_eq!((img.w, img.h), (maker::W * z as usize, maker::H * z as usize));
+        assert_eq!((img.w, img.h), (maker::PHOTOS_W * z as usize, maker::PHOTOS_H * z as usize), "the Photos step is the bigger window");
         // the part being asked for is marked on the preview's box
         let aim = [0xE0, 0x30, 0x30];
         let count = |img: &Rgba| img.px.chunks(4).filter(|p| p[..3] == aim).count();

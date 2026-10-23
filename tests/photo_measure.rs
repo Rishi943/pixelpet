@@ -42,13 +42,13 @@ impl Img {
         self.fill(c, |x, y| (x - at.0).powi(2) + (y - at.1).powi(2) <= r * r);
     }
 
-    /// A light colour cast over everything, plus a little fixed noise.
-    fn cast(mut self, k: [f64; 3]) -> Photo {
+    /// A little fixed noise over everything, as in a real photo.
+    fn noisy(mut self) -> Photo {
         let mut seed = 7u32;
-        for (i, v) in self.ph.rgb.iter_mut().enumerate() {
+        for v in self.ph.rgb.iter_mut() {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             let noise = ((seed >> 24) % 5) as f64 - 2.0;
-            *v = (*v as f64 * k[i % 3] + noise).round().clamp(0.0, 255.0) as u8;
+            *v = (*v as f64 + noise).round().clamp(0.0, 255.0) as u8;
         }
         self.ph
     }
@@ -110,9 +110,13 @@ const BLACK: u32 = 0x231B1B;
 const CREAM: u32 = 0xE2B077;
 const MASK: u32 = 0x2B2220;
 
-/// The dog painted to match `dog_points(ONE)`, grey wall, bluish cast.
+/// The dog painted to match `dog_points(ONE)`, on a plain wall.
 fn dog_photo() -> Photo {
-    let mut im = Img::new(1000, 900, [150, 150, 150]);
+    dog_on([150, 150, 150])
+}
+
+fn dog_on(wall: [u8; 3]) -> Photo {
+    let mut im = Img::new(1000, 900, wall);
     im.rect(TAN, 300.0, 250.0, 700.0, 450.0); // body
     im.rect(TAN, SH.0 - 18.0, 250.0, SH.0 + 18.0, 800.0); // front leg
     im.rect(BLACK, 330.0, 250.0, 670.0, 310.0); // saddle
@@ -120,7 +124,7 @@ fn dog_photo() -> Photo {
     let pts = dog_points(ONE);
     let (nose, eye) = (pts[0].1, pts[1].1);
     im.disc(MASK, (nose.0 + (eye.0 - nose.0) * 0.4, nose.1 + (eye.1 - nose.1) * 0.4), 30.0);
-    im.cast([0.85, 1.0, 1.15])
+    im.noisy()
 }
 
 fn lab(c: u32) -> [f64; 3] {
@@ -214,14 +218,18 @@ fn several_photos_use_the_median() {
 }
 
 #[test]
-fn colours_come_back_through_a_colour_cast() {
-    let ph = dog_photo();
-    let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(ONE))]);
-    for (family, want, name) in [(fam::TAN, TAN, "coat"), (fam::BLACK, BLACK, "saddle"), (fam::CREAM, CREAM, "legs"), (fam::MASK, MASK, "mask")] {
-        let got = colour(&f, family).unwrap_or_else(|| panic!("no {name}"));
-        let de = delta_e(got, want);
-        eprintln!("dE {name}: {de:.2} ({got:06X} vs {want:06X})");
-        assert!(de < 5.0, "{name}: {got:06X} vs {want:06X}, dE {de:.1}");
+fn colours_come_back_as_they_are_on_any_background() {
+    // a grey wall, and green leaves (which a white balance once read as a
+    // cast and turned a beagle blue)
+    for wall in [[150, 150, 150], [40, 140, 40]] {
+        let ph = dog_on(wall);
+        let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(ONE))]);
+        for (family, want, name) in [(fam::TAN, TAN, "coat"), (fam::BLACK, BLACK, "saddle"), (fam::CREAM, CREAM, "legs"), (fam::MASK, MASK, "mask")] {
+            let got = colour(&f, family).unwrap_or_else(|| panic!("no {name}"));
+            let de = delta_e(got, want);
+            eprintln!("dE {name}: {de:.2} ({got:06X} vs {want:06X})");
+            assert!(de < 5.0, "{name} on {wall:?}: {got:06X} vs {want:06X}, dE {de:.1}");
+        }
     }
 }
 
@@ -252,7 +260,7 @@ fn a_rabbit_gets_its_head_ears_and_colours() {
     im.rect(0x94693B, 250.0, 560.0, 450.0, 620.0);
     let (e_at, e_r) = ((ear.0 + (eye.0 - ear.0) * 0.35, ear.1 + (eye.1 - ear.1) * 0.35), 0.08 * 2.45 * 0.443 * l);
     im.disc(0xD6A799, e_at, e_r * 1.4);
-    let ph = im.cast([0.95, 1.02, 1.03]); // a cool cast that doesn't clip the white
+    let ph = im.noisy();
     let at = vec![
         (Point::Nose, nose),
         (Point::Eye, eye),
@@ -280,7 +288,7 @@ fn a_rabbit_gets_its_head_ears_and_colours() {
 fn any_skips_stay_in_range() {
     let mut ph = Img::new(120, 90, [120, 130, 140]);
     ph.rect(0x553322, 20.0, 30.0, 90.0, 60.0);
-    let ph = ph.cast([1.0, 1.0, 1.0]);
+    let ph = ph.noisy();
     for pet in [Pet::Dog, Pet::Rabbit] {
         let all = points(pet);
         let bases: Vec<Design> = breeds(pet).iter().map(|b| (b.design)()).collect();
