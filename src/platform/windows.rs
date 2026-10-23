@@ -145,6 +145,109 @@ impl Platform for Win {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
         (unsafe { GetAsyncKeyState(VK_ESCAPE as i32) } as u16 & 0x8000) != 0
     }
+
+    fn pick_photos(&self) -> Option<Vec<PathBuf>> {
+        unsafe { open_dialog() }
+    }
+}
+
+// COM by hand: windows-sys has the CLSID and the option flags but no vtables
+// or IIDs. Every interface is a pointer to a pointer to a table of fns, the
+// first argument of each being the interface itself. Slots counted from
+// IUnknown (QueryInterface 0, AddRef 1, Release 2) down the inheritance
+// chain.
+type Com = *mut *const usize;
+type Hr = i32;
+
+const IID_IFILEOPENDIALOG: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0xd57c7288_d4ad_4768_be02_9d969532d960);
+const HR_CANCELLED: Hr = 0x800704C7u32 as Hr; // HRESULT_FROM_WIN32(ERROR_CANCELLED)
+const RPC_E_CHANGED_MODE: Hr = 0x80010106u32 as Hr;
+
+#[repr(C)]
+struct FilterSpec {
+    name: *const u16,
+    spec: *const u16,
+}
+
+/// Call slot `n` of the interface `o` as `fn(o, args...) -> Hr`.
+macro_rules! com {
+    ($o:expr, $n:expr, fn($($t:ty),*), $($a:expr),*) => {{
+        let f: unsafe extern "system" fn(Com $(, $t)*) -> Hr = std::mem::transmute(*(*$o).add($n));
+        f($o $(, $a)*)
+    }};
+}
+
+unsafe fn release(o: Com) {
+    com!(o, 2, fn(),);
+}
+
+/// The Open dialog for several JPEG/PNG files, with no owner window (the
+/// maker is topmost, and the dialog opens in front of it). Blocks until it
+/// closes. None if the dialog could not be made; Some(empty) on Cancel.
+unsafe fn open_dialog() -> Option<Vec<PathBuf>> {
+    use windows_sys::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+    use windows_sys::Win32::UI::Shell::{FileOpenDialog, FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, SIGDN_FILESYSPATH};
+    // S_OK and S_FALSE (already initialised the same way) both need a
+    // matching CoUninitialize; a thread already in another mode needs none.
+    let init = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+    if init < 0 && init != RPC_E_CHANGED_MODE {
+        return None;
+    }
+    let result = (|| {
+        let mut dlg: *mut std::ffi::c_void = std::ptr::null_mut();
+        if CoCreateInstance(&FileOpenDialog, std::ptr::null_mut(), CLSCTX_INPROC_SERVER, &IID_IFILEOPENDIALOG, &mut dlg) < 0 || dlg.is_null() {
+            return None;
+        }
+        let dlg = dlg as Com;
+        let picked = (|| {
+            // IFileDialog: SetFileTypes 4, GetOptions 10, SetOptions 9, SetTitle 17
+            let (name, spec) = (wide("Photos (*.jpg;*.jpeg;*.png)"), wide("*.jpg;*.jpeg;*.png"));
+            let filter = FilterSpec { name: name.as_ptr(), spec: spec.as_ptr() };
+            com!(dlg, 4, fn(u32, *const FilterSpec), 1, &filter as *const FilterSpec);
+            let title = wide("Choose photos");
+            com!(dlg, 17, fn(*const u16), title.as_ptr());
+            let mut opts = 0u32;
+            com!(dlg, 10, fn(*mut u32), &mut opts as *mut u32);
+            com!(dlg, 9, fn(u32), opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST);
+            // IModalWindow::Show 3
+            let shown = com!(dlg, 3, fn(isize), 0);
+            if shown == HR_CANCELLED {
+                return Some(Vec::new());
+            }
+            if shown < 0 {
+                return None;
+            }
+            // IFileOpenDialog::GetResults 27 -> IShellItemArray (GetCount 7, GetItemAt 8)
+            let mut items: Com = std::ptr::null_mut();
+            if com!(dlg, 27, fn(*mut Com), &mut items as *mut Com) < 0 || items.is_null() {
+                return None;
+            }
+            let (mut count, mut paths) = (0u32, Vec::new());
+            com!(items, 7, fn(*mut u32), &mut count as *mut u32);
+            for i in 0..count {
+                let mut item: Com = std::ptr::null_mut();
+                if com!(items, 8, fn(u32, *mut Com), i, &mut item as *mut Com) < 0 || item.is_null() {
+                    continue;
+                }
+                // IShellItem::GetDisplayName 5, a CoTaskMem string
+                let mut s: *mut u16 = std::ptr::null_mut();
+                if com!(item, 5, fn(i32, *mut *mut u16), SIGDN_FILESYSPATH, &mut s as *mut *mut u16) >= 0 && !s.is_null() {
+                    let len = (0..).take_while(|&n| *s.add(n) != 0).count();
+                    paths.push(PathBuf::from(<std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(std::slice::from_raw_parts(s, len))));
+                    CoTaskMemFree(s as *const _);
+                }
+                release(item);
+            }
+            release(items);
+            Some(paths)
+        })();
+        release(dlg);
+        picked
+    })();
+    if init >= 0 {
+        CoUninitialize();
+    }
+    result
 }
 
 fn os_err(code: u32) -> std::io::Error {

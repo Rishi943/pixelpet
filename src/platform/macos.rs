@@ -133,6 +133,26 @@ impl Platform for Mac {
         }
     }
 
+    /// `NSOpenPanel`, modal; AppKit allows it on the main thread only, so
+    /// from any other thread there is no dialog (None).
+    fn pick_photos(&self) -> Option<Vec<PathBuf>> {
+        use objc2_app_kit::{NSModalResponseOK, NSOpenPanel};
+        use objc2_foundation::{MainThreadMarker, NSArray, NSString};
+        let mtm = MainThreadMarker::new()?;
+        unsafe {
+            let panel = NSOpenPanel::openPanel(mtm);
+            panel.setAllowsMultipleSelection(true);
+            panel.setCanChooseDirectories(false);
+            let types: Vec<_> = ["jpg", "jpeg", "png"].into_iter().map(NSString::from_str).collect();
+            #[allow(deprecated)] // allowedContentTypes needs UniformTypeIdentifiers
+            panel.setAllowedFileTypes(Some(&NSArray::from_vec(types)));
+            if panel.runModal() != NSModalResponseOK {
+                return Some(Vec::new());
+            }
+            Some(panel.URLs().iter().filter_map(|u| u.path()).map(|p| PathBuf::from(p.to_string())).collect())
+        }
+    }
+
     /// Never: reading keys needs Input Monitoring, the prompt that looks
     /// like a key logger. Right-click ends play instead.
     fn esc_down(&self) -> bool {

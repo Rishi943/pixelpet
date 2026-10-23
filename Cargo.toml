@@ -22,6 +22,7 @@ features = [
     "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
+    "Win32_System_Com",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
@@ -37,7 +38,9 @@ features = ["allow-unsafe-code", "dl-libxcb", "image", "shape", "randr", "screen
 # the macOS crates winit already uses
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.5.3"
-objc2-foundation = { version = "=0.2.2", features = ["NSString", "NSGeometry"] }
+objc2-foundation = { version = "=0.2.2", features = ["NSString", "NSGeometry", "NSArray", "NSURL"] }
+# already in the lock file through winit; only the open panel's features
+objc2-app-kit = { version = "=0.2.2", features = ["NSOpenPanel", "NSSavePanel", "NSPanel", "NSResponder", "NSWindow", "NSApplication"] }
 core-graphics = "=0.23.2"
 core-foundation = "=0.9.4"
 

@@ -2,7 +2,7 @@
 //! Every query answers None/false rather than failing if the server lacks
 //! what it needs.
 
-use super::pure::{autostart_desktop, autostart_target, exec_from_desktop, wayland_session};
+use super::pure::{autostart_desktop, autostart_target, exec_from_desktop, picker_result, wayland_session};
 use super::{Platform, Rect};
 use std::path::{Path, PathBuf};
 use x11rb::connection::Connection;
@@ -163,6 +163,39 @@ impl Platform for X11 {
                 r => r,
             },
         }
+    }
+
+    /// zenity, else kdialog, else no dialog (None). A program that is not
+    /// installed or cannot show itself falls through to the next.
+    fn pick_photos(&self) -> Option<Vec<PathBuf>> {
+        let home = std::env::var("HOME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| ".".into());
+        let tools: [(&str, Vec<String>); 2] = [
+            (
+                "zenity",
+                ["--file-selection", "--multiple", "--separator=\n", "--title=Choose photos"]
+                    .map(String::from)
+                    .into_iter()
+                    .chain(["--file-filter=Photos | *.jpg *.jpeg *.png *.JPG *.JPEG *.PNG".to_string()])
+                    .collect(),
+            ),
+            (
+                "kdialog",
+                ["--getopenfilename", "--multiple", "--separate-output"]
+                    .map(String::from)
+                    .into_iter()
+                    .chain([home, "image/jpeg image/png".to_string()])
+                    .collect(),
+            ),
+        ];
+        tools.iter().find_map(|(prog, args)| {
+            let out = std::process::Command::new(prog)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            picker_result(out.status.code(), &String::from_utf8_lossy(&out.stdout))
+        })
     }
 
     fn esc_down(&self) -> bool {

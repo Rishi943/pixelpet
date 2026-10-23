@@ -117,3 +117,36 @@ pub fn autostart_target(exe: &Path, env: &dyn Fn(&str) -> Option<String>) -> Res
 pub fn wayland_session(env: &dyn Fn(&str) -> Option<String>) -> bool {
     env("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) || env("XDG_SESSION_TYPE").is_some_and(|v| v == "wayland")
 }
+
+/// What a Linux file-chooser program (zenity, kdialog) left behind: one path
+/// per line. Exit 0 is a pick (empty lines dropped, spaces kept), 1 is
+/// Cancel (`Some(empty)`), anything else is a program that could not show
+/// itself (`None`, so the next one is tried).
+pub fn picker_result(exit: Option<i32>, stdout: &str) -> Option<Vec<PathBuf>> {
+    match exit {
+        Some(0) => Some(stdout.lines().map(|l| l.trim_end_matches('\r')).filter(|l| !l.is_empty()).map(PathBuf::from).collect()),
+        Some(1) => Some(Vec::new()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picker_output_is_one_path_per_line() {
+        let got = picker_result(Some(0), "/home/a b/one.jpg\n/tmp/two.png\n");
+        assert_eq!(got, Some(vec![PathBuf::from("/home/a b/one.jpg"), PathBuf::from("/tmp/two.png")]));
+        assert_eq!(picker_result(Some(0), "/x/y.jpg"), Some(vec![PathBuf::from("/x/y.jpg")]));
+        assert_eq!(picker_result(Some(0), "/x/y.jpg\r\n\n"), Some(vec![PathBuf::from("/x/y.jpg")]));
+        assert_eq!(picker_result(Some(0), ""), Some(vec![]));
+    }
+
+    #[test]
+    fn picker_cancel_is_empty_and_failure_is_none() {
+        assert_eq!(picker_result(Some(1), ""), Some(vec![]));
+        assert_eq!(picker_result(Some(255), ""), None);
+        assert_eq!(picker_result(None, "/x.jpg\n"), None); // killed by a signal
+    }
+}
