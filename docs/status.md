@@ -2,6 +2,23 @@
 
 Newest first. The project's own session record; the shared `E:\AI` tracker only points here.
 
+## 2026-10-23 — PixelPet v2: the pet maker, merged to main
+
+**Repo:** branch `v2` (which already held `m3`) fast-forwarded into `main`. Spec
+`docs/superpowers/specs/2026-10-21-pixelpet-v2-pet-maker-design.md`, plan
+`docs/superpowers/plans/2026-10-21-pixelpet-v2-pet-maker.md`. Suite: 159 pass, 1 ignored. CI green on `v2`.
+
+**What landed:** a pet is data (`Design`: breed, proportions, colours), with Alex and the bun unchanged (parity
+at 0 px). A small pixel-style maker window in five steps with a live preview, opened on first launch and from
+"Make a pet..." in the menu; saved pets are small text files, switched with arrows in the menu. X11 connects
+with a short retry; macOS swaps the pet's image without a cross-fade.
+
+**Not done / owed:** the real-machine checklist in `docs/release.md` (now includes the maker) is still unrun on
+a Mac or Linux desktop.
+
+**Next:** v3, building a pet from photos. Rushi chose: photos set **colours and proportions**; input by file
+picker, drag and drop and several photos (details left to Claude). Still fully offline. Spec first.
+
 ## 2026-10-21 (later) — PixelPet M3: macOS, Linux and release builds, on branch `m3`
 
 **Repo:** now on GitHub, **private**: `Rishi943/pixelpet` (remote `origin`). Branch `m3`, not merged. Plan
