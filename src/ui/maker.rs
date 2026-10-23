@@ -982,7 +982,7 @@ fn glyph_px(img: &mut Rgba, ch: char, x: i32, y: i32, z: i32, col: [u8; 3], clip
 pub fn all_copy() -> Vec<&'static str> {
     let mut v = vec!["Make a pet", "x", "Dog", "Rabbit", "Cat (later)", "Collar", "Type a name", "Then they hop onto", "your taskbar."];
     v.extend(["Delete", "Delete ?", "Yes", "No", "Random", "< Back", "Next >", "Done", "0123456789/"]);
-    v.extend(["From photos...", "Open photo...", "Skip", "Standing", "Sitting", "Other", "Up to 5 photos", "Drop photos here"]);
+    v.extend(["From photos...", "Open photo...", "Skip", "Standing", "Sitting", "Other", "Up to 5 photos", "Drop photos here", "That photo is too big", "Not a JPEG or PNG photo"]);
     v.extend([HELP_NONE, HELP_POSE, HELP_DONE]);
     for pet in [Pet::Dog, Pet::Rabbit] {
         v.extend(measure::points(pet).iter().map(|&p| measure::prompt(pet, p)));

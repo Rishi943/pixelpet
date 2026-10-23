@@ -52,7 +52,7 @@ struct MakerOpen {
     left: i32,
     top: i32,
     /// the cursor in the window (physical px), and whether the button is held
-    at: (i32, i32),
+    at: (f32, f32),
     held: bool,
     /// when the preview pet's current anim started, and the last redraw
     anim_start: f64,
@@ -682,7 +682,7 @@ impl App {
         let top = work.y + ((work.h - h) / 2).max(0);
         let now = self.now();
         let anim = maker.preview_anim();
-        self.maker = Some(MakerOpen { win, maker, scale, left, top, at: (0, 0), held: false, anim_start: now, anim, drawn_at: f64::NEG_INFINITY });
+        self.maker = Some(MakerOpen { win, maker, scale, left, top, at: (0.0, 0.0), held: false, anim_start: now, anim, drawn_at: f64::NEG_INFINITY });
         self.draw_maker(now, true);
         if let Some(m) = &self.maker {
             m.win.focus();
@@ -694,6 +694,7 @@ impl App {
     fn draw_maker(&mut self, now: f64, now_please: bool) {
         let look = self.look;
         let Some(m) = self.maker.as_mut() else { return };
+        let now_please = now_please || matches!(m.maker.tick(now), Outcome::Redraw);
         if !now_please && now - m.drawn_at < 1.0 / 12.0 {
             return;
         }
@@ -719,12 +720,12 @@ impl App {
 
     fn maker_event(&mut self, ev: WindowEvent) {
         let Some(m) = self.maker.as_mut() else { return };
-        let s = m.scale.max(1) as i32;
+        let s = m.scale.max(1) as f32;
         let outcome = match ev {
             WindowEvent::CursorMoved { position, .. } => {
-                m.at = (position.x as i32, position.y as i32);
+                m.at = (position.x as f32, position.y as f32);
                 if m.held {
-                    m.maker.drag(m.at.0 / s, m.at.1 / s)
+                    m.maker.drag_at(m.at.0 / s, m.at.1 / s)
                 } else {
                     Outcome::Nothing
                 }
@@ -732,10 +733,18 @@ impl App {
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 m.held = state == ElementState::Pressed;
                 if m.held {
-                    m.maker.click(m.at.0 / s, m.at.1 / s)
+                    m.maker.click_at(m.at.0 / s, m.at.1 / s)
                 } else {
-                    Outcome::Nothing
+                    m.maker.release();
+                    Outcome::Redraw
                 }
+            }
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
+                m.maker.right_click(m.at.0 / s, m.at.1 / s)
+            }
+            WindowEvent::DroppedFile(path) => {
+                self.add_photos(vec![path]);
+                return;
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => match &event.logical_key {
                 Key::Named(NamedKey::Escape) => m.maker.key(MakerKey::Esc),
@@ -758,12 +767,37 @@ impl App {
         self.maker_outcome(outcome);
     }
 
+    /// Photos opened or dropped: read each into the maker, or say why not.
+    /// The photos live only in the maker; nothing about them is saved.
+    fn add_photos(&mut self, paths: Vec<std::path::PathBuf>) {
+        let Some(m) = self.maker.as_mut() else { return };
+        if !m.maker.wants_photos() {
+            return;
+        }
+        for path in paths {
+            match crate::photo::load::open(&path) {
+                Ok(p) => m.maker.add_photo(p),
+                Err(crate::photo::load::LoadError::TooBig) => m.maker.photo_error("That photo is too big"),
+                Err(_) => m.maker.photo_error("Not a JPEG or PNG photo"),
+            }
+        }
+        self.draw_maker(self.now(), true);
+    }
+
     fn maker_outcome(&mut self, o: Outcome) {
         match o {
             Outcome::Nothing => {}
             Outcome::Redraw => self.draw_maker(self.now(), true),
             Outcome::Close => self.maker = None,
-            Outcome::PickPhotos => {}
+            Outcome::PickPhotos => match self.platform.pick_photos() {
+                Some(paths) => self.add_photos(paths),
+                None => {
+                    if let Some(m) = self.maker.as_mut() {
+                        m.maker.photo_error("Drop photos here");
+                    }
+                    self.draw_maker(self.now(), true);
+                }
+            },
             Outcome::Done(mut r) => {
                 if r.id.is_empty() {
                     let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
