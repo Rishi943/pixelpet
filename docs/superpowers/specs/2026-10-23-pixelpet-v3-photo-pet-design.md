@@ -71,9 +71,15 @@ are gone); it goes through the v2 steps.
   - Markers can be dragged to fix them.
   - Asks for a side-on photo, standing or walking. A photo where the pet faces the camera can still give
     colours; its points are optional.
-- **The point set** (to be settled by the prototype, see §9):
-  - **Dog:** nose tip, ear tip, top of shoulders, base of tail, tail tip, front paw, back paw.
-  - **Rabbit:** nose tip, ear tip, top of back, tail, front foot, back foot.
+- **Pose:** each photo first asks **"Standing | Sitting | Other"** (one click). The prototype on the
+  `alex/` photos showed a sitting pet breaks the leg and tail ratios (a tucked tail measured 0.11–0.17 of the
+  back against 0.52 standing), so a sitting photo gives head, ear and colours only, and "Other" gives
+  colours only.
+- **The point set** (from the prototype, 2026-10-23):
+  - **Dog:** nose tip, eye, ear tip, top of shoulders, base of tail, tail tip, chest, front paw, back paw.
+  - **Rabbit:** nose tip, eye, ear tip, top of back, tail, chest, front foot, back foot.
+  - The eye places the muzzle and mask regions (nose-to-ear alone put them in the air when the head was
+    tilted up); the chest gives the light (cream) colour.
 - **"Next"** is enabled once one photo has at least the points needed for one value; values with no points in
   any photo stay at the base breed's.
 
@@ -84,11 +90,16 @@ are gone); it goes through the v2 steps.
   Each ratio is divided by the same ratio measured on the base breed's own photos, so the built-in pet's
   photos give 1.0 on every slider. With several photos, the **median** is used. Results are clamped to the
   v2 slider ranges.
-- **Colours:** the points mark out regions (the saddle between shoulders and tail base, the legs above the
-  paws, the muzzle behind the nose, the ear below its tip). Each region's colour is a robust pick over its
-  pixels (most common cluster, ignoring the background at the region's edges), pooled across photos. The
-  colour sets the v2 area (Dog: Coat, Saddle, Legs, Mask; Rabbit: Coat, Patches, Ears); its four shades come
-  from v2's `shades()` as for any swatch.
+- **Colours:** first a grey-world white balance on the whole photo (the studio photos had a blue cast that
+  turned Alex's black blue-green). Then the points mark out regions: the saddle is a band on both sides of
+  the shoulders-to-tail-base line, taking its darkest cluster; the legs above the paws; the chest, taking its
+  lightest cluster; the muzzle and mask as small discs placed from the nose and eye. Each region is
+  clustered in Lab and its dominant cluster wins, ignoring pixels close to the background colour (the median
+  of the photo's border), pink (tongue) and highlights. Regions pool across photos. The colour sets the v2
+  area (Dog: Coat, Saddle, Legs, Mask; Rabbit: Coat, Patches, Ears); its four shades come from v2's
+  `shades()` as for any swatch.
+- **Expect colours to be close, not exact.** On Alex's photos the prototype (without white balance) came
+  within ΔE 5–14 for the black and 23–28 for the tan. That is why every colour lands in an editable swatch.
 - **Fluff, Head and Feet** have no reliable points in v3: they stay at the base breed's values.
 
 ## 6. Constraints
@@ -123,7 +134,7 @@ are gone); it goes through the v2 steps.
 
 ## 9. Left to the builder
 
-- The final point set and region shapes, from the prototype on the `alex/` photos.
+- Region sizes, from the prototype on the `alex/` photos (script kept out of the repo; its findings are §4–5).
 - The exact ratio for each slider, and the reference values measured on the built-in pets.
 - How the photo is drawn inside the pixel-styled maker window on each OS.
 - The order of work and the test plan.
