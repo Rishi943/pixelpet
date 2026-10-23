@@ -162,7 +162,8 @@ fn zero_photos_return_the_base_design() {
 fn alexs_own_proportions_give_one() {
     let ph = Img::new(1000, 900, [150, 150, 150]).ph;
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(ONE))]);
-    assert_eq!(f.set, ["legs", "body", "head", "ears", "muzzle", "tail"]);
+    assert_eq!(f.set, ["legs", "head", "ears", "muzzle", "tail"]);
+    assert_eq!(f.shape.body, 1.0);
     for name in &f.set {
         let v = f.shape.get(name).unwrap();
         assert!((v - 1.0).abs() < 0.01, "{name} = {v}");
@@ -175,7 +176,7 @@ fn known_ratios_come_back() {
     let ph = Img::new(1000, 900, [150, 150, 150]).ph;
     let d = Dog { legs: 1.1, head: 1.2, ears: 1.15, muzzle: 1.1, tail: 0.8 };
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(d))]);
-    let want = [("legs", 1.1), ("head", 1.2), ("ears", 1.15), ("muzzle", 1.1), ("tail", 0.8), ("body", 1.0 / 1.2)];
+    let want = [("legs", 1.1), ("head", 1.2), ("ears", 1.15), ("muzzle", 1.1), ("tail", 0.8), ("body", 1.0)];
     for (name, v) in want {
         let got = f.shape.get(name).unwrap();
         assert!((got - v).abs() < 0.01, "{name}: {got} vs {v}");
@@ -335,9 +336,8 @@ fn nan_and_empty_inputs_do_not_panic() {
 /// PIXELPET_ALEX_PHOTOS (the private `alex/` photos); skips if it isn't set.
 /// The taps are the prototype's, in a 1000 px thumbnail of each photo
 /// (photos 0 and 2 are sitting, 4 is standing; eye and chest on 4 read off a zoomed crop).
-/// TODO: decode with `photo::load::open` once it exists; until then a JPEG
-/// is read here with zune-jpeg and cut down to 1000 px without EXIF turning,
-/// as the prototype did.
+/// The taps are in 1000 px thumbnails, so the JPEGs are read here and cut to
+/// 1000 px as the prototype did, not with `photo::load` (which cuts to 1024).
 #[test]
 #[ignore]
 fn alex_photos_give_about_alex() {

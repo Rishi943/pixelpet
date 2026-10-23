@@ -137,7 +137,6 @@ const DOG_EARS: f64 = 0.434; // ear tip to eye / L
 const DOG_MUZZLE: f64 = 0.238; // nose to eye / L
 const DOG_LEGS: f64 = 1.243; // shoulders to front paw / L
 const DOG_TAIL: f64 = 0.514; // tail base to tail tip / L
-const DOG_BODY: f64 = 1.0 / DOG_HEAD; // L / nose to ear tip
 // Alex the bun, from the lying photo (WhatsApp ... (10)) and the sitting-up
 // one (... (12)): nose to eye over the top-of-back-to-tail length, and the
 // eye-to-ear-tip length over nose to eye. Rougher than the dog's.
@@ -167,7 +166,8 @@ fn ratios(pet: Pet, pose: Pose, p: &Pts) -> Vec<(&'static str, f64)> {
             if pose == Pose::Standing {
                 add("legs", gap(p.sh, p.fp), l, DOG_LEGS);
                 add("tail", gap(p.tb, p.tt), l, DOG_TAIL);
-                add("body", l, span, DOG_BODY);
+                // No Body: the only length to measure it against is the head,
+                // and Head already uses that same ratio.
             }
         }
         Pet::Rabbit => {
