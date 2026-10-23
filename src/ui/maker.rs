@@ -92,17 +92,22 @@ fn pet_spot(pet: Pet, p: Point) -> (f32, f32) {
         (Pet::Dog, Shoulders) => (0.1, -1.0),
         (Pet::Dog, TailBase) => (-0.62, -0.86),
         (Pet::Dog, TailTip) => (-0.88, -0.12),
-        (Pet::Dog, Chest) => (0.35, -0.65),
         (Pet::Dog, FrontPaw) => (0.45, -0.05),
-        (Pet::Dog, BackPaw) => (-0.35, -0.05),
+        // the colour clicks: flank, saddle, front leg, muzzle
+        (Pet::Dog, CoatColour) => (-0.2, -0.6),
+        (Pet::Dog, MarkColour) => (-0.25, -0.92),
+        (Pet::Dog, LegColour) => (0.4, -0.3),
+        (Pet::Dog, FaceColour | EarColour) => (0.8, -1.15),
         (Pet::Rabbit, Nose) => (0.6, -0.82),
         (Pet::Rabbit, Eye) => (0.45, -0.9),
         (Pet::Rabbit, EarTip) => (0.2, -1.78),
         (Pet::Rabbit, Shoulders) => (-0.2, -0.72),
         (Pet::Rabbit, TailBase | TailTip) => (-0.55, -0.42),
-        (Pet::Rabbit, Chest) => (0.15, -0.4),
         (Pet::Rabbit, FrontPaw) => (0.25, -0.05),
-        (Pet::Rabbit, BackPaw) => (-0.3, -0.05),
+        // body, patch, inside the ear
+        (Pet::Rabbit, CoatColour | LegColour | FaceColour) => (0.0, -0.4),
+        (Pet::Rabbit, MarkColour) => (-0.25, -0.62),
+        (Pet::Rabbit, EarColour) => (0.22, -1.45),
     }
 }
 
@@ -741,7 +746,7 @@ impl Maker {
                 disc(&mut img, cx, cy, (r + 0.8) * s as f32, OUTLINE, clip);
                 disc(&mut img, cx, cy, r * s as f32, col, clip);
                 if Some(pt) == next {
-                    let digit = char::from_digit(i as u32 + 1, 10).unwrap_or('?');
+                    let digit = char::from_digit(i as u32 + 1, 36).unwrap_or('?');
                     let (lx, ly) = ((cx + 3.0 * s as f32).round() as i32, (cy - 9.0 * s as f32).round() as i32);
                     for (dx, dy, c) in [(-1, 0, OUTLINE), (1, 0, OUTLINE), (0, -1, OUTLINE), (0, 1, OUTLINE), (0, 0, SEL_TEXT)] {
                         glyph_px(&mut img, digit, lx + dx * s, ly + dy * s, s, c, clip);
@@ -978,7 +983,8 @@ impl Maker {
             let (cx, cy) = ((rx + px * k) * zf, (ry + py * k) * zf);
             disc(img, cx, cy, 2.5 * zf, OUTLINE, clip);
             disc(img, cx, cy, 1.5 * zf, MARK, clip);
-            let digit = char::from_digit(order.iter().position(|&o| o == pt).map_or(0, |i| i as u32 + 1), 10).unwrap_or('?');
+            // 10 and up as a, b
+            let digit = char::from_digit(order.iter().position(|&o| o == pt).map_or(0, |i| i as u32 + 1), 36).unwrap_or('?');
             // beside the marker, on whichever side has room
             let lx = if cx + 3.0 * zf + 5.0 * zf > clip.2 as f32 { cx - 8.0 * zf } else { cx + 3.0 * zf };
             let ly = if cy - 9.0 * zf < clip.1 as f32 { cy + 3.0 * zf } else { cy - 9.0 * zf };

@@ -28,7 +28,8 @@ model, nothing automatic that could guess wrong silently); file picker, drag and
 
 - Cats and new shapes (floppy ears, spots, merle): still need new art, as in v2.
 - Video. Photos only.
-- HEIC (the iPhone default). JPEG and PNG only; the picker says so.
+- HEIC (the iPhone default). JPEG, PNG and WebP only (WebP added 2026-10-23: browsers save it, often
+  named .jpg); the picker says so.
 - Telling the species from the photo: the person picks Dog or Rabbit first, as today.
 
 **Anti-goals: these would make v3 a failure even if everything technically works**
@@ -75,32 +76,35 @@ are gone); it goes through the v2 steps.
   `alex/` photos showed a sitting pet breaks the leg and tail ratios (a tucked tail measured 0.11–0.17 of the
   back against 0.52 standing), so a sitting photo gives head, ear and colours only, and "Other" gives
   colours only.
-- **The point set** (from the prototype, 2026-10-23):
-  - **Dog:** nose tip, eye, ear tip, top of shoulders, base of tail, tail tip, chest, front paw, back paw.
-  - **Rabbit:** nose tip, eye, ear tip, top of back, tail, chest, front foot, back foot.
-  - The eye places the muzzle and mask regions (nose-to-ear alone put them in the air when the head was
-    tilted up); the chest gives the light (cream) colour.
+- **The point set** (revised 2026-10-23 after testing on six dog breeds and two rabbits):
+  - **Dog:** nose tip, eye, ear tip, top of shoulders, base of tail, tail tip, front paw; then four
+    **colour clicks**: the main coat, the saddle (or Skip for a solid coat), the legs, the muzzle.
+  - **Rabbit:** nose tip, eye, ear tip, top of back, tail, front foot; then the main coat, the patches
+    (or Skip), inside an ear.
+  - Colours were first guessed from areas the body points mark out. On real breeds that kept failing
+    (a Lab's shadows read as a saddle, a beagle's white legs as its coat, a black collie came out grey),
+    so the person clicks each colour instead, and the maker reads the fur under the click.
+- **The window grows** for this step (320 x 200 UI px, fitted to the screen), and the preview box shows a
+  reference pet with every point numbered as on the photo, the one being asked for in red.
 - **"Next"** is enabled once one photo has at least the points needed for one value; values with no points in
   any photo stay at the base breed's.
 
 ## 5. From points to sliders and colours
 
-- **Proportions:** each slider comes from a ratio of distances between points, e.g. leg length (shoulders to
-  front paw) over body length (shoulders to tail base). Ratios don't depend on the photo's size or distance.
-  Each ratio is divided by the same ratio measured on the base breed's own photos, so the built-in pet's
-  photos give 1.0 on every slider. With several photos, the **median** is used. Results are clamped to the
-  v2 slider ranges.
-- **Colours:** first a grey-world white balance on the whole photo (the studio photos had a blue cast that
-  turned Alex's black blue-green). Then the points mark out regions: the saddle is a band on both sides of
-  the shoulders-to-tail-base line, taking its darkest cluster; the legs above the paws; the chest, taking its
-  lightest cluster; the muzzle and mask as small discs placed from the nose and eye. Each region is
-  clustered in Lab and its dominant cluster wins, ignoring pixels close to the background colour (the median
-  of the photo's border), pink (tongue) and highlights. Regions pool across photos. The colour sets the v2
-  area (Dog: Coat, Saddle, Legs, Mask; Rabbit: Coat, Patches, Ears); its four shades come from v2's
-  `shades()` as for any swatch.
-- **Expect colours to be close, not exact.** On Alex's photos the prototype (without white balance) came
-  within ΔE 5–14 for the black and 23–28 for the tan. That is why every colour lands in an editable swatch.
-- **Fluff, Head and Feet** have no reliable points in v3: they stay at the base breed's values.
+- **Proportions:** each slider comes from a ratio of distances between points against the
+  shoulders-to-tail-base length L: Legs (shoulders to front paw, Standing only), Ears (ear tip to eye),
+  Muzzle (nose to eye), Tail (tail base to tip, Standing only); the rabbit's Head and Ears. Each ratio is
+  divided by a reference: the median of side-on photos of a Lab, Husky, Golden, Border Collie and beagle
+  (ears: the prick-eared Husky), so a typical dog gets 1.0. With several photos, the **median** is used.
+  Results are clamped to the v2 slider ranges.
+- **Head, Body, Fluff and Feet** stay at the base breed's values. Head was dropped because nose to ear tip
+  mixes in ear height; Body because the only length to measure it against is the head's.
+- **Colours:** each colour click takes the most common of three colours in a small disc round it (in Lab),
+  pooled across photos as a median. No white balance: grey-world turned a beagle on green leaves blue.
+  The colour sets the v2 area (Dog: Coat, Saddle, Legs, Mask; Rabbit: Coat, Patches, Ears); its four
+  shades come from v2's `shades()` as for any swatch. A skipped saddle or patch colour gives a solid coat.
+- **What the rig can't show:** every dog is drawn with the GSD's markings in the same places and every
+  rabbit as a coat with patches, so a beagle's big saddle or a husky's mask come out close, not exact.
 
 ## 6. Constraints
 

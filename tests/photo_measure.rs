@@ -6,7 +6,7 @@ use pixelpet::photo::measure::{fit, points, Marked, Point, Pose};
 use pixelpet::photo::Photo;
 use pixelpet::rig::breeds::{breeds, sliders};
 use pixelpet::rig::core::fam;
-use pixelpet::rig::design::{shades, Design};
+use pixelpet::rig::design::Design;
 use pixelpet::rig::Pet;
 
 type P = (f32, f32);
@@ -99,10 +99,18 @@ fn dog_points(d: Dog) -> Vec<(Point, P)> {
         (Point::Shoulders, SH),
         (Point::TailBase, TB),
         (Point::TailTip, (TB.0, TB.1 + d.tail * 0.45 * L)),
-        (Point::Chest, (SH.0 + 40.0, 400.0)),
         (Point::FrontPaw, (SH.0, SH.1 + d.legs * 0.9 * L)),
-        (Point::BackPaw, (TB.0, TB.1 + 480.0)),
+        // the colour clicks, on the areas `dog_on` paints
+        (Point::CoatColour, (500.0, 400.0)),
+        (Point::MarkColour, (500.0, 280.0)),
+        (Point::LegColour, (SH.0 + 40.0, 400.0)),
+        (Point::FaceColour, muzzle(nose, eye)),
     ]
+}
+
+/// Where `dog_on` paints the mask: between the nose and the eye.
+fn muzzle(nose: P, eye: P) -> P {
+    (nose.0 + (eye.0 - nose.0) * 0.4, nose.1 + (eye.1 - nose.1) * 0.4)
 }
 
 const TAN: u32 = 0xC47637;
@@ -123,7 +131,7 @@ fn dog_on(wall: [u8; 3]) -> Photo {
     im.rect(CREAM, SH.0 + 40.0 - 35.0, 365.0, SH.0 + 40.0 + 35.0, 435.0); // chest
     let pts = dog_points(ONE);
     let (nose, eye) = (pts[0].1, pts[1].1);
-    im.disc(MASK, (nose.0 + (eye.0 - nose.0) * 0.4, nose.1 + (eye.1 - nose.1) * 0.4), 30.0);
+    im.disc(MASK, muzzle(nose, eye), 30.0);
     im.noisy()
 }
 
@@ -193,7 +201,7 @@ fn values_are_clamped_to_the_slider_range() {
     let d = Dog { legs: 1.0, ..ONE };
     let mut pts = dog_points(d);
     // a front paw far below: legs would be 1.5 times the reference
-    pts[7].1 = (SH.0, SH.1 + 1.5 * 0.9 * L);
+    pts.iter_mut().find(|p| p.0 == Point::FrontPaw).unwrap().1 = (SH.0, SH.1 + 1.5 * 0.9 * L);
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, pts)]);
     assert_eq!(f.shape.legs, 1.3);
 }
@@ -234,6 +242,16 @@ fn colours_come_back_as_they_are_on_any_background() {
 }
 
 #[test]
+fn a_skipped_saddle_gives_a_solid_coat() {
+    let ph = dog_photo();
+    let at: Vec<(Point, P)> = dog_points(ONE).into_iter().filter(|p| p.0 != Point::MarkColour).collect();
+    let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, at)]);
+    // the coat, a shade darker
+    let (coat, saddle) = (colour(&f, fam::TAN).unwrap(), colour(&f, fam::BLACK).unwrap());
+    assert!(delta_e(saddle, coat) < 7.0 && lab(saddle)[0] < lab(coat)[0], "{saddle:06X} vs {coat:06X}");
+}
+
+#[test]
 fn colours_pool_across_photos_and_replace_the_base_ones() {
     let ph = dog_photo();
     let two = [marked(&ph, Pose::Standing, dog_points(ONE)), marked(&ph, Pose::Other, dog_points(ONE))];
@@ -254,7 +272,6 @@ fn a_rabbit_gets_its_head_ears_and_colours() {
     let k = 0.443 * l / ne; // scale the head to the bun's ratio
     let nose = (eye.0 + (nose.0 - eye.0) * k, eye.1 + (nose.1 - eye.1) * k);
     let ear = (eye.0 - 0.3 * 2.45 * 0.443 * l, eye.1 - 0.954 * 2.45 * 0.443 * l);
-    let chest = (560.0, 700.0);
     let mut im = Img::new(1200, 1000, [150, 150, 150]);
     im.rect(0xF3F0EB, 100.0, 560.0, 700.0, 800.0);
     im.rect(0x94693B, 250.0, 560.0, 450.0, 620.0);
@@ -267,7 +284,9 @@ fn a_rabbit_gets_its_head_ears_and_colours() {
         (Point::EarTip, ear),
         (Point::Shoulders, sh),
         (Point::TailBase, tb),
-        (Point::Chest, chest),
+        (Point::CoatColour, (600.0, 750.0)),
+        (Point::MarkColour, (350.0, 590.0)),
+        (Point::EarColour, e_at),
     ];
     let f = fit(&Design::bun(), &[marked(&ph, Pose::Standing, at)]);
     assert_eq!(f.set, ["head", "ears"]);
@@ -335,108 +354,4 @@ fn nan_and_empty_inputs_do_not_panic() {
     let empty = Photo { w: 0, h: 0, rgb: vec![] };
     let at = dog_points(ONE);
     let _ = fit(&Design::alex(), &[marked(&empty, Pose::Standing, at)]);
-}
-
-// ---------------------------------------------------------------- real photos (local only)
-
-/// Alex's own photos give about Alex: sliders within 0.1 of 1.0 where set,
-/// colours within dE 15 of one of his base shades. Reads the folder named by
-/// PIXELPET_ALEX_PHOTOS (the private `alex/` photos); skips if it isn't set.
-/// The taps are the prototype's, in a 1000 px thumbnail of each photo
-/// (photos 0 and 2 are sitting, 4 is standing; eye and chest on 4 read off a zoomed crop).
-/// The taps are in 1000 px thumbnails, so the JPEGs are read here and cut to
-/// 1000 px as the prototype did, not with `photo::load` (which cuts to 1024).
-#[test]
-#[ignore]
-fn alex_photos_give_about_alex() {
-    let Some(dir) = std::env::var_os("PIXELPET_ALEX_PHOTOS").map(std::path::PathBuf::from).filter(|d| d.is_dir()) else {
-        eprintln!("PIXELPET_ALEX_PHOTOS not set to a folder: skipped");
-        return;
-    };
-    let mut names: Vec<String> = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(|e| e.ok()?.file_name().into_string().ok())
-        .filter(|n| n.to_lowercase().ends_with(".jpg") || n.to_lowercase().ends_with(".jpeg"))
-        .collect();
-    names.sort();
-    assert!(names.len() >= 5, "expected Alex's six photos in {dir:?}");
-    let photos: Vec<Photo> = [0, 2, 4].map(|i| load_jpeg(&dir.join(&names[i]))).into();
-    let p = |x: f32, y: f32| (x, y);
-    let sitting = |nose, ear, sh, tt, tb, fp, bp| {
-        vec![(Point::Nose, nose), (Point::EarTip, ear), (Point::Shoulders, sh), (Point::TailTip, tt), (Point::TailBase, tb), (Point::FrontPaw, fp), (Point::BackPaw, bp)]
-    };
-    let marks = [
-        marked(&photos[0], Pose::Sitting, sitting(p(635., 315.), p(432., 168.), p(335., 430.), p(68., 858.), p(118., 850.), p(432., 940.), p(270., 918.))),
-        marked(&photos[1], Pose::Sitting, sitting(p(138., 315.), p(343., 178.), p(425., 445.), p(690., 845.), p(625., 815.), p(335., 925.), p(500., 905.))),
-        marked(
-            &photos[2],
-            Pose::Standing,
-            vec![
-                (Point::Nose, p(505., 342.)),
-                (Point::Eye, p(545., 300.)),
-                (Point::EarTip, p(518., 198.)),
-                (Point::Shoulders, p(440., 272.)),
-                (Point::TailBase, p(205., 335.)),
-                (Point::TailTip, p(145., 445.)),
-                (Point::Chest, p(455., 425.)),
-                (Point::FrontPaw, p(478., 572.)),
-                (Point::BackPaw, p(248., 502.)),
-            ],
-        ),
-    ];
-    let f = fit(&Design::alex(), &marks);
-    eprintln!("set {:?}, shape {:?}", f.set, f.shape);
-    for name in &f.set {
-        let v = f.shape.get(name).unwrap();
-        assert!((v - 1.0).abs() <= 0.1, "{name} = {v}");
-    }
-    let alex = [(fam::TAN, "coat"), (fam::BLACK, "saddle"), (fam::CREAM, "legs"), (fam::MASK, "mask")];
-    let mut worst = 0.0f64;
-    for (family, name) in alex {
-        let Some(got) = colour(&f, family) else {
-            eprintln!("{name}: not found");
-            continue;
-        };
-        let de = shades(match family {
-            x if x == fam::TAN => TAN,
-            x if x == fam::BLACK => BLACK,
-            x if x == fam::CREAM => CREAM,
-            _ => MASK,
-        })
-        .into_iter()
-        .map(|s| delta_e(got, s))
-        .fold(f64::MAX, f64::min);
-        eprintln!("{name}: {got:06X}, dE to nearest shade {de:.1}");
-        worst = worst.max(de);
-    }
-    assert!(worst <= 15.0, "worst colour is dE {worst:.1} from Alex's shades");
-}
-
-/// Decode a JPEG and box-average it down to 1000 px on the long side.
-fn load_jpeg(path: &std::path::Path) -> Photo {
-    use zune_jpeg::zune_core::bytestream::ZCursor;
-    let bytes = std::fs::read(path).unwrap();
-    let mut dec = zune_jpeg::JpegDecoder::new(ZCursor::new(&bytes));
-    let rgb = dec.decode().unwrap();
-    let (w, h) = dec.dimensions().unwrap();
-    let s = (w.max(h) as f32 / 1000.0).max(1.0);
-    let (nw, nh) = ((w as f32 / s) as usize, (h as f32 / s) as usize);
-    let mut out = Vec::with_capacity(nw * nh * 3);
-    for y in 0..nh {
-        for x in 0..nw {
-            let (x0, x1) = ((x as f32 * s) as usize, (((x + 1) as f32 * s) as usize).clamp(1, w).max((x as f32 * s) as usize + 1));
-            let (y0, y1) = ((y as f32 * s) as usize, (((y + 1) as f32 * s) as usize).clamp(1, h).max((y as f32 * s) as usize + 1));
-            let mut sum = [0u32; 3];
-            for yy in y0..y1.min(h) {
-                for xx in x0..x1.min(w) {
-                    for c in 0..3 {
-                        sum[c] += rgb[(yy * w + xx) * 3 + c] as u32;
-                    }
-                }
-            }
-            let n = ((y1.min(h) - y0) * (x1.min(w) - x0)).max(1) as u32;
-            out.extend(sum.map(|v| (v / n) as u8));
-        }
-    }
-    Photo { w: nw as u32, h: nh as u32, rgb: out }
 }
