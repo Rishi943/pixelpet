@@ -44,3 +44,6 @@ core-foundation = "=0.9.4"
 [[test]]
 name = "window_hit"
 harness = false
+
+[dev-dependencies]
+jpeg-encoder = "0.7.1"
