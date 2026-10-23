@@ -763,6 +763,7 @@ impl App {
             Outcome::Nothing => {}
             Outcome::Redraw => self.draw_maker(self.now(), true),
             Outcome::Close => self.maker = None,
+            Outcome::PickPhotos => {}
             Outcome::Done(mut r) => {
                 if r.id.is_empty() {
                     let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());

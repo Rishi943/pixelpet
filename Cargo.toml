@@ -11,7 +11,9 @@ name = "PixelPet"
 path = "src/main.rs"
 
 [dependencies]
+png = "0.18.1"
 winit = "0.30"
+zune-jpeg = "0.5.15"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "=0.52.0"

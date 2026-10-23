@@ -45,6 +45,8 @@ const NAMES: [&str; 8] = ["Biscuit", "Pixel", "Mango", "Pepper", "Comet", "Noodl
 pub enum Step {
     Animal,
     Breed,
+    /// Only on the "From photos..." path, between Breed and Shape.
+    Photos,
     Shape,
     Coat,
     Name,
@@ -60,6 +62,8 @@ pub enum Outcome {
     Done(PetRecord),
     Delete(String),
     Close,
+    /// Open the system's photo dialog and hand the photos to `add_photo`.
+    PickPhotos,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,7 +175,7 @@ impl Maker {
     /// What the preview pet does on this step, to show off what it changes.
     pub fn preview_anim(&self) -> Anim {
         match self.step() {
-            Step::Animal | Step::Breed => Anim::Stand,
+            Step::Animal | Step::Breed | Step::Photos => Anim::Stand,
             Step::Shape => Anim::Walk,
             Step::Coat => Anim::Sit,
             Step::Name => Anim::Tilt,
@@ -418,6 +422,7 @@ impl Maker {
                 c.wide_button("Rabbit", Y0 + 12, pet == Pet::Rabbit, Hit::Animal(Pet::Rabbit));
                 c.text("Cat (later)", RX + 3, Y0 + 26, DIM);
             }
+            Step::Photos => {}
             Step::Breed => {
                 for (i, b) in breeds(pet).iter().enumerate() {
                     c.wide_button(b.name, Y0 + 12 * i as i32, i == self.breed, Hit::Breed(i));

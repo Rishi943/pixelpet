@@ -54,6 +54,11 @@ pub trait Platform {
     /// Whether Esc is held down right now. The app asks only while play is
     /// going on (Esc ends it), and reads no other key.
     fn esc_down(&self) -> bool;
+    /// The system's file dialog for JPEG/PNG photos, several at once; blocks
+    /// until it closes. None: no dialog on this system. Some(empty): cancelled.
+    fn pick_photos(&self) -> Option<Vec<PathBuf>> {
+        None
+    }
 }
 
 /// No OS support: no cursor, no idle, no fullscreen, a 1920x1040 work area.
@@ -97,6 +102,9 @@ pub struct Fake {
     pub fullscreen: RefCell<Option<bool>>,
     pub autostart: RefCell<Option<PathBuf>>,
     pub esc: RefCell<bool>,
+    /// What the photo dialog answers; each call is counted.
+    pub photos: RefCell<Option<Vec<PathBuf>>>,
+    pub photo_picks: RefCell<u32>,
 }
 
 impl Default for Fake {
@@ -110,6 +118,8 @@ impl Default for Fake {
             fullscreen: RefCell::new(Some(false)),
             autostart: RefCell::new(None),
             esc: RefCell::new(false),
+            photos: RefCell::new(Some(Vec::new())),
+            photo_picks: RefCell::new(0),
         }
     }
 }
@@ -145,6 +155,10 @@ impl Platform for Fake {
     }
     fn esc_down(&self) -> bool {
         *self.esc.borrow()
+    }
+    fn pick_photos(&self) -> Option<Vec<PathBuf>> {
+        *self.photo_picks.borrow_mut() += 1;
+        self.photos.borrow().clone()
     }
 }
 
