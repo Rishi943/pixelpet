@@ -89,18 +89,18 @@ const TB: P = (300.0, 250.0);
 /// maker reads (Alex's reference ratios times `d`).
 fn dog_points(d: Dog) -> Vec<(Point, P)> {
     let nose = (900.0, 200.0);
-    let span = d.head * 0.594 * L;
+    let span = d.head * 0.4 * L;
     let ear = (nose.0 - span * 0.8, nose.1 - span * 0.6);
-    let eye = eye_from(nose, ear, d.muzzle * 0.238 * L, d.ears * 0.434 * L);
+    let eye = eye_from(nose, ear, d.muzzle * 0.16 * L, d.ears * 0.29 * L);
     vec![
         (Point::Nose, nose),
         (Point::Eye, eye),
         (Point::EarTip, ear),
         (Point::Shoulders, SH),
         (Point::TailBase, TB),
-        (Point::TailTip, (TB.0, TB.1 + d.tail * 0.514 * L)),
+        (Point::TailTip, (TB.0, TB.1 + d.tail * 0.45 * L)),
         (Point::Chest, (SH.0 + 40.0, 400.0)),
-        (Point::FrontPaw, (SH.0, SH.1 + d.legs * 1.243 * L)),
+        (Point::FrontPaw, (SH.0, SH.1 + d.legs * 0.9 * L)),
         (Point::BackPaw, (TB.0, TB.1 + 480.0)),
     ]
 }
@@ -166,7 +166,7 @@ fn zero_photos_return_the_base_design() {
 fn alexs_own_proportions_give_one() {
     let ph = Img::new(1000, 900, [150, 150, 150]).ph;
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(ONE))]);
-    assert_eq!(f.set, ["legs", "head", "ears", "muzzle", "tail"]);
+    assert_eq!(f.set, ["legs", "ears", "muzzle", "tail"]);
     assert_eq!(f.shape.body, 1.0);
     for name in &f.set {
         let v = f.shape.get(name).unwrap();
@@ -180,7 +180,7 @@ fn known_ratios_come_back() {
     let ph = Img::new(1000, 900, [150, 150, 150]).ph;
     let d = Dog { legs: 1.1, head: 1.2, ears: 1.15, muzzle: 1.1, tail: 0.8 };
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, dog_points(d))]);
-    let want = [("legs", 1.1), ("head", 1.2), ("ears", 1.15), ("muzzle", 1.1), ("tail", 0.8), ("body", 1.0)];
+    let want = [("legs", 1.1), ("head", 1.0), ("ears", 1.15), ("muzzle", 1.1), ("tail", 0.8), ("body", 1.0)];
     for (name, v) in want {
         let got = f.shape.get(name).unwrap();
         assert!((got - v).abs() < 0.01, "{name}: {got} vs {v}");
@@ -193,16 +193,16 @@ fn values_are_clamped_to_the_slider_range() {
     let d = Dog { legs: 1.0, ..ONE };
     let mut pts = dog_points(d);
     // a front paw far below: legs would be 1.5 times the reference
-    pts[7].1 = (SH.0, SH.1 + 1.5 * 1.243 * L);
+    pts[7].1 = (SH.0, SH.1 + 1.5 * 0.9 * L);
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Standing, pts)]);
     assert_eq!(f.shape.legs, 1.3);
 }
 
 #[test]
-fn sitting_gives_the_head_and_other_gives_no_proportions() {
+fn sitting_gives_the_face_and_other_gives_no_proportions() {
     let ph = Img::new(1000, 900, [150, 150, 150]).ph;
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Sitting, dog_points(Dog { legs: 0.7, tail: 0.3, ..ONE }))]);
-    assert_eq!(f.set, ["head", "ears", "muzzle"]);
+    assert_eq!(f.set, ["ears", "muzzle"]);
     assert_eq!((f.shape.legs, f.shape.tail, f.shape.body), (1.0, 1.0, 1.0));
     let f = fit(&Design::alex(), &[marked(&ph, Pose::Other, dog_points(ONE))]);
     assert!(f.set.is_empty());

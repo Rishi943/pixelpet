@@ -123,16 +123,20 @@ fn gap(a: Option<P>, b: Option<P>) -> Option<f64> {
     (d >= 1.0).then_some(d)
 }
 
-// Reference ratios: each one is what Alex's own photos give, so that his
-// photos give 1.0 on every slider. Measured from the clicks of the 2026-10-23
-// prototype on the standing photo (IMG-20180920-WA0002, taps in a 1000 px
-// thumbnail), with eye and chest read off the same photo by eye. L is the
+// Reference ratios: what a typical dog's side-on photo gives, so that it
+// gets 1.0 (Alex's proportions) on every slider. Measured on 2026-10-23 from
+// clicks on side-on photos of a Lab, Husky, Golden, Border Collie and beagle:
+// legs and muzzle are their median, ears the prick-eared Husky's (a Lab then
+// gives 0.79, as the Yellow Lab breed has), tail the median. Alex's one
+// standing photo turns towards the camera, which skewed every ratio. L is the
 // shoulders-to-tail-base length.
-const DOG_HEAD: f64 = 0.594; // nose to ear tip / L
-const DOG_EARS: f64 = 0.434; // ear tip to eye / L
-const DOG_MUZZLE: f64 = 0.238; // nose to eye / L
-const DOG_LEGS: f64 = 1.243; // shoulders to front paw / L
-const DOG_TAIL: f64 = 0.514; // tail base to tail tip / L
+const DOG_EARS: f64 = 0.29; // ear tip to eye / L
+const DOG_MUZZLE: f64 = 0.16; // nose to eye / L
+const DOG_LEGS: f64 = 0.9; // shoulders to front paw / L
+const DOG_TAIL: f64 = 0.45; // tail base to tail tip / L
+/// Nose to ear tip over L, only to size the colour areas when the back
+/// wasn't clicked.
+const DOG_SPAN: f64 = 0.45;
 // Alex the bun, from the lying photo (WhatsApp ... (10)) and the sitting-up
 // one (... (12)): nose to eye over the top-of-back-to-tail length, and the
 // eye-to-ear-tip length over nose to eye. Rougher than the dog's.
@@ -154,8 +158,8 @@ fn ratios(pet: Pet, pose: Pose, p: &Pts) -> Vec<(&'static str, f64)> {
     };
     match pet {
         Pet::Dog => {
-            let span = gap(p.nose, p.ear);
-            add("head", span, l, DOG_HEAD);
+            // No Head: nose to ear tip mixes in how tall the ears are, so
+            // every floppy-eared dog came out at the smallest head.
             add("ears", gap(p.ear, p.eye), l, DOG_EARS);
             add("muzzle", gap(p.nose, p.eye), l, DOG_MUZZLE);
             // A sitting dog's legs and tail are folded, so they say nothing.
@@ -282,9 +286,10 @@ enum Pick {
     Lightest,
     /// The middle of the three by lightness.
     Middle,
-    /// The darkest if it covers a third of the area (a GSD's black mask),
-    /// else the most common (a beagle's white muzzle round a black nose).
-    Mask,
+    /// A marking (saddle, mask): the darkest if it covers a third of the
+    /// area, like a GSD's or a beagle's saddle, else the most common, so a
+    /// Lab's shadows don't paint it a saddle.
+    Marking,
 }
 
 /// One colour area and where to look for it.
@@ -305,7 +310,7 @@ fn jobs(pet: Pet, p: &Pts) -> Vec<Job> {
     // A length to size the regions by: shoulders to tail base, or failing
     // that a guess from the head.
     let unit = gap(p.sh, p.tb).or_else(|| match pet {
-        Pet::Dog => gap(p.nose, p.ear).map(|h| h / DOG_HEAD),
+        Pet::Dog => gap(p.nose, p.ear).map(|h| h / DOG_SPAN),
         Pet::Rabbit => gap(p.nose, p.eye).map(|h| h / BUN_HEAD),
     });
     let Some(u) = unit.map(|u| u as f32) else {
@@ -320,14 +325,15 @@ fn jobs(pet: Pet, p: &Pts) -> Vec<Job> {
                 let down = (0.0, 0.3 * u);
                 let (a2, b2) = ((a.0 + down.0, a.1 + down.1), (b.0 + down.0, b.1 + down.1));
                 v.push(Job { fam: fam::TAN, mask: Mask::Band(a2, b2, 0.3 * u), pick: Pick::Middle });
-                v.push(Job { fam: fam::BLACK, mask: Mask::Band(sh, tb, 0.2 * u), pick: Pick::Darkest });
+                v.push(Job { fam: fam::BLACK, mask: Mask::Band(sh, tb, 0.2 * u), pick: Pick::Marking });
             }
             if let Some(c) = p.chest {
                 v.push(Job { fam: fam::CREAM, mask: Mask::Disc(c, 0.08 * u), pick: Pick::Lightest });
             }
             if let (Some(n), Some(e)) = (p.nose, p.eye) {
-                let r = 0.25 * dist(n, e) as f32;
-                v.push(Job { fam: fam::MASK, mask: Mask::Disc(lerp(n, e, 0.4), r), pick: Pick::Mask });
+                // the top of the muzzle, clear of the black nose
+                let r = 0.2 * dist(n, e) as f32;
+                v.push(Job { fam: fam::MASK, mask: Mask::Disc(lerp(n, e, 0.6), r), pick: Pick::Marking });
             }
         }
         Pet::Rabbit => {
@@ -471,7 +477,7 @@ fn sample(ph: &Photo, job: &Job, bg: [f64; 3], strict: bool) -> Option<Lab> {
         })?
     };
     let best = match job.pick {
-        Pick::Mask => {
+        Pick::Marking => {
             let dark = (0..3).filter(|&j| st[j].0 > 0).min_by(|&a, &b| mean(a).total_cmp(&mean(b)))?;
             if st[dark].0 * 3 >= n {
                 dark
