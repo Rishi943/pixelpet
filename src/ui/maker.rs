@@ -2,10 +2,14 @@
 //! breed, shape, coat, name) beside a live preview of the pet, drawn in the
 //! menu's pixel style. Pure state and drawing: the app feeds it clicks,
 //! drags and keys, and hands it the preview frame. Layout and copy follow
-//! the approved mockup in `drafts/maker/index.html`.
+//! the approved mockup in `drafts/maker/index.html`. "From photos..." in the
+//! Breed list adds a sixth step, Photos, where the person's photos are shown
+//! and clicked on (see `photo::measure` for what the points become).
 
 use super::font;
 use crate::pets::{self, clean_name, is_builtin, PetRecord, NAME_MAX};
+use crate::photo::measure::{self, Marked, Point, Pose};
+use crate::photo::Photo;
 use crate::rig::breeds::{areas, breeds, sliders, COLLARS, SWATCHES};
 use crate::rig::{Anim, Design, Pet};
 use crate::window::Rgba;
@@ -38,8 +42,60 @@ const BAR_W: i32 = RW - 40;
 const SW_X: i32 = RX + 40;
 const SW_STEP: i32 = 9;
 
-const STEPS: [&str; 5] = ["Animal", "Breed", "Shape", "Coat", "Name"];
+// the Photos step: the photo's box under the controls, and the marker colours
+const AY: i32 = 72;
+const AH: i32 = PY + PH - AY;
+const MARK: [u8; 3] = [0xFF, 0xD0, 0x30];
+const AIM: [u8; 3] = [0xE0, 0x30, 0x30];
+const ERR: [u8; 3] = [0xB0, 0x20, 0x20];
+/// Most photos at once, and how long a message stays up (seconds).
+pub const MAX_PHOTOS: usize = 5;
+const ERROR_SECS: f64 = 4.0;
+/// How close (UI px) a click must be to a marker to grab it.
+const GRAB: f32 = 4.0;
+
 const NAMES: [&str; 8] = ["Biscuit", "Pixel", "Mango", "Pepper", "Comet", "Noodle", "Toffee", "Bean"];
+// the Photos step's prompt lines when there is no point to ask for
+const HELP_NONE: &str = "Open a side-on photo or drop one here.";
+const HELP_POSE: &str = "Standing, sitting or other?";
+const HELP_DONE: &str = "That is every point. Press Next.";
+
+fn step_name(s: Step) -> &'static str {
+    match s {
+        Step::Animal => "Animal",
+        Step::Breed => "Breed",
+        Step::Photos => "Photos",
+        Step::Shape => "Shape",
+        Step::Coat => "Coat",
+        Step::Name => "Name",
+    }
+}
+
+/// Where the preview pet's part is in its stand pose, in units of the look's
+/// radius right of and below the spot the pet stands on (read off the
+/// rendered frames of Alex and Alex the bun, both facing right).
+fn pet_spot(pet: Pet, p: Point) -> (f32, f32) {
+    use Point::*;
+    match (pet, p) {
+        (Pet::Dog, Nose) => (0.95, -1.2),
+        (Pet::Dog, Eye) => (0.6, -1.3),
+        (Pet::Dog, EarTip) => (0.42, -1.78),
+        (Pet::Dog, Shoulders) => (0.1, -1.0),
+        (Pet::Dog, TailBase) => (-0.62, -0.86),
+        (Pet::Dog, TailTip) => (-0.88, -0.12),
+        (Pet::Dog, Chest) => (0.35, -0.65),
+        (Pet::Dog, FrontPaw) => (0.45, -0.05),
+        (Pet::Dog, BackPaw) => (-0.35, -0.05),
+        (Pet::Rabbit, Nose) => (0.6, -0.82),
+        (Pet::Rabbit, Eye) => (0.45, -0.9),
+        (Pet::Rabbit, EarTip) => (0.2, -1.78),
+        (Pet::Rabbit, Shoulders) => (-0.2, -0.72),
+        (Pet::Rabbit, TailBase | TailTip) => (-0.55, -0.42),
+        (Pet::Rabbit, Chest) => (0.15, -0.4),
+        (Pet::Rabbit, FrontPaw) => (0.25, -0.05),
+        (Pet::Rabbit, BackPaw) => (-0.3, -0.05),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
@@ -52,7 +108,8 @@ pub enum Step {
     Name,
 }
 
-const ALL_STEPS: [Step; 5] = [Step::Animal, Step::Breed, Step::Shape, Step::Coat, Step::Name];
+const PLAIN_STEPS: [Step; 5] = [Step::Animal, Step::Breed, Step::Shape, Step::Coat, Step::Name];
+const PHOTO_STEPS: [Step; 6] = [Step::Animal, Step::Breed, Step::Photos, Step::Shape, Step::Coat, Step::Name];
 
 #[derive(Debug)]
 pub enum Outcome {
@@ -79,6 +136,12 @@ enum Hit {
     Dot(usize),
     Animal(Pet),
     Breed(usize),
+    FromPhotos,
+    Open,
+    Tab(usize),
+    Remove,
+    Pose(Pose),
+    Skip,
     Slider(usize),
     Swatch(i8, u32),
     CollarNone,
@@ -101,6 +164,14 @@ struct Region {
     hit: Hit,
 }
 
+/// One photo in the Photos step, with what has been clicked on it.
+struct Shot {
+    photo: Photo,
+    pose: Option<Pose>,
+    /// the points answered, in order: where (photo pixels), or None if skipped
+    done: Vec<(Point, Option<(f32, f32)>)>,
+}
+
 pub struct Maker {
     step: usize,
     reached: usize,
@@ -116,6 +187,21 @@ pub struct Maker {
     confirm_delete: bool,
     drag: Option<usize>,
     rng: u64,
+    /// a saved pet is being edited, so no photos (they are long gone)
+    editing: bool,
+    /// "From photos..." is picked, so Photos is a step
+    photos_path: bool,
+    shots: Vec<Shot>,
+    /// the photo shown
+    cur: usize,
+    /// the marker (index into the shown photo's `done`) being dragged
+    grab: Option<usize>,
+    /// the photos changed since they last set the design
+    photos_dirty: bool,
+    /// the coat the photos gave, offered as a first swatch in each Coat row
+    photo_coat: Vec<(i8, u32)>,
+    /// a message for the Photos step, and the `tick` time it first showed
+    error: Option<(String, Option<f64>)>,
 }
 
 impl Maker {
@@ -133,6 +219,14 @@ impl Maker {
             confirm_delete: false,
             drag: None,
             rng: seed | 1,
+            editing: false,
+            photos_path: false,
+            shots: vec![],
+            cur: 0,
+            grab: None,
+            photos_dirty: false,
+            photo_coat: vec![],
+            error: None,
         };
         m.apply_breed(Pet::Dog, 0);
         m
@@ -146,7 +240,7 @@ impl Maker {
         let builtin = is_builtin(&r.id);
         Maker {
             step: 1,
-            reached: STEPS.len() - 1,
+            reached: PLAIN_STEPS.len() - 1,
             breed,
             design: r.design.clone(),
             name: r.name.clone(),
@@ -157,11 +251,27 @@ impl Maker {
             confirm_delete: false,
             drag: None,
             rng: seed | 1,
+            editing: true,
+            photos_path: false,
+            shots: vec![],
+            cur: 0,
+            grab: None,
+            photos_dirty: false,
+            photo_coat: vec![],
+            error: None,
+        }
+    }
+
+    fn steps(&self) -> &'static [Step] {
+        if self.photos_path {
+            &PHOTO_STEPS
+        } else {
+            &PLAIN_STEPS
         }
     }
 
     pub fn step(&self) -> Step {
-        ALL_STEPS[self.step]
+        self.steps()[self.step]
     }
 
     pub fn design(&self) -> &Design {
@@ -196,6 +306,7 @@ impl Maker {
     fn apply_breed(&mut self, pet: Pet, i: usize) {
         self.breed = i;
         self.design = (breeds(pet)[i].design)();
+        self.photos_dirty = true;
         if self.auto_name {
             self.name = if i == 0 {
                 pets::builtins().into_iter().find(|b| b.design.pet == pet).map(|b| b.name).unwrap_or_default()
@@ -206,9 +317,55 @@ impl Maker {
     }
 
     fn go(&mut self, i: usize) {
-        self.step = i.min(STEPS.len() - 1);
+        let from = (self.step(), self.step);
+        self.step = i.min(self.steps().len() - 1);
         self.reached = self.reached.max(self.step);
         self.confirm_delete = false;
+        self.grab = None;
+        if from.0 == Step::Photos && self.step > from.1 && self.photos_dirty {
+            self.apply_photos();
+        }
+    }
+
+    /// Picking a breed (or "From photos...", which is the first breed with
+    /// the Photos step added). Dots past this step no longer mean anything.
+    fn set_path(&mut self, photos: bool) {
+        if photos != self.photos_path {
+            self.photos_path = photos;
+            self.reached = self.step;
+        }
+    }
+
+    /// The marked photos set the shape and coat: Alex's (or the bun's) own
+    /// design is the base, and photos with no points count for nothing.
+    fn apply_photos(&mut self) {
+        self.photos_dirty = false;
+        let pet = self.design.pet;
+        let known = measure::points(pet);
+        let marked: Vec<Marked> = self
+            .shots
+            .iter()
+            .filter_map(|s| {
+                let at: Vec<_> = s.done.iter().filter_map(|&(p, at)| at.filter(|_| known.contains(&p)).map(|a| (p, a))).collect();
+                (!at.is_empty()).then_some(Marked { photo: &s.photo, pose: s.pose.unwrap_or(Pose::Other), at })
+            })
+            .collect();
+        if marked.is_empty() {
+            self.photo_coat.clear();
+            return;
+        }
+        let fit = measure::fit(&(breeds(pet)[0].design)(), &marked);
+        self.design.shape = fit.shape;
+        self.design.coat = fit.coat.clone();
+        self.photo_coat = fit.coat;
+    }
+
+    fn next(&mut self) -> Outcome {
+        if self.step == self.steps().len() - 1 {
+            return self.done();
+        }
+        self.go(self.step + 1);
+        Outcome::Redraw
     }
 
     fn randomise(&mut self) {
@@ -276,30 +433,67 @@ impl Maker {
 
     /// A click at UI pixel `(x, y)`.
     pub fn click(&mut self, x: i32, y: i32) -> Outcome {
+        self.click_at(x as f32, y as f32)
+    }
+
+    /// A click at `(x, y)` in UI pixels as floats (the cursor's position in
+    /// window pixels over the zoom), so a point on a photo lands on the
+    /// photo pixel under the cursor at any zoom.
+    pub fn click_at(&mut self, x: f32, y: f32) -> Outcome {
         self.drag = None;
+        self.grab = None;
+        let (ix, iy) = (x.floor() as i32, y.floor() as i32);
         let (_, regions) = self.layout();
-        let Some(hit) = regions.iter().find(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h).map(|r| r.hit) else {
-            return Outcome::Nothing;
+        let Some(hit) = regions.iter().find(|r| ix >= r.x && ix < r.x + r.w && iy >= r.y && iy < r.y + r.h).map(|r| r.hit) else {
+            return if self.step() == Step::Photos { self.click_photo(x, y) } else { Outcome::Nothing };
         };
         let pet = self.design.pet;
         match hit {
             Hit::Dot(i) => self.go(i),
             Hit::Animal(p) => {
+                self.set_path(false);
                 self.apply_breed(p, 0);
                 self.go(1);
             }
-            Hit::Breed(i) => self.apply_breed(pet, i),
+            Hit::Breed(i) => {
+                self.set_path(false);
+                self.apply_breed(pet, i);
+            }
+            Hit::FromPhotos => {
+                self.set_path(true);
+                self.apply_breed(pet, 0);
+            }
+            Hit::Open => return Outcome::PickPhotos,
+            Hit::Tab(i) => self.cur = i.min(self.shots.len().saturating_sub(1)),
+            Hit::Remove => {
+                if self.cur < self.shots.len() {
+                    self.shots.remove(self.cur);
+                    self.cur = self.cur.min(self.shots.len().saturating_sub(1));
+                    self.photos_dirty = true;
+                }
+            }
+            Hit::Pose(p) => {
+                if let Some(s) = self.shots.get_mut(self.cur) {
+                    s.pose = Some(p);
+                    self.photos_dirty = true;
+                }
+            }
+            Hit::Skip => {
+                if let Some(p) = self.next_point() {
+                    self.shots[self.cur].done.push((p, None));
+                    self.photos_dirty = true;
+                }
+            }
             Hit::Slider(i) => {
                 self.drag = Some(i);
-                self.set_slider(i, x);
+                self.set_slider(i, ix);
             }
             Hit::Swatch(f, c) => self.set_coat(f, c),
             Hit::CollarNone => self.design.collar = None,
             Hit::Collar(c) => self.design.collar = Some(c),
             Hit::Random => self.randomise(),
             Hit::Back => self.go(self.step.saturating_sub(1)),
-            Hit::Next if self.step == STEPS.len() - 1 => return self.done(),
-            Hit::Next => self.go(self.step + 1),
+            Hit::Next => return self.next(),
             Hit::Close => return Outcome::Close,
             Hit::Delete => self.confirm_delete = true,
             Hit::No => self.confirm_delete = false,
@@ -310,14 +504,150 @@ impl Maker {
 
     /// The cursor moved to `(x, y)` with the button held: drags a slider
     /// grabbed by the last click.
-    pub fn drag(&mut self, x: i32, _y: i32) -> Outcome {
+    pub fn drag(&mut self, x: i32, y: i32) -> Outcome {
+        self.drag_at(x as f32, y as f32)
+    }
+
+    /// `drag` with the cursor in float UI pixels: also drags a marker
+    /// grabbed by the last click.
+    pub fn drag_at(&mut self, x: f32, y: f32) -> Outcome {
+        if let (Some(i), Some((rx, ry, rw, _))) = (self.grab, self.photo_rect()) {
+            let p = &self.shots[self.cur].photo;
+            let k = rw / p.w as f32;
+            let at = (((x - rx) / k).clamp(0.0, p.w as f32), ((y - ry) / k).clamp(0.0, p.h as f32));
+            if let Some(d) = self.shots[self.cur].done.get_mut(i) {
+                d.1 = Some(at);
+                self.photos_dirty = true;
+            }
+            return Outcome::Redraw;
+        }
         match self.drag {
             Some(i) => {
-                self.set_slider(i, x);
+                self.set_slider(i, x.floor() as i32);
                 Outcome::Redraw
             }
             None => Outcome::Nothing,
         }
+    }
+
+    /// The button came up: lets go of a slider or marker.
+    pub fn release(&mut self) {
+        self.drag = None;
+        self.grab = None;
+    }
+
+    /// A right click at `(x, y)`: on the Photos step, takes back the last
+    /// point (marker or skip) of the shown photo.
+    pub fn right_click(&mut self, _x: f32, _y: f32) -> Outcome {
+        self.grab = None;
+        let on_photos = self.step() == Step::Photos;
+        let popped = on_photos && self.shots.get_mut(self.cur).is_some_and(|s| s.done.pop().is_some());
+        if popped {
+            self.photos_dirty = true;
+            return Outcome::Redraw;
+        }
+        Outcome::Nothing
+    }
+
+    /// A photo was opened or dropped: add it as the shown photo. Ignored
+    /// unless "From photos..." is picked; a sixth is refused with a message.
+    pub fn add_photo(&mut self, photo: Photo) {
+        if !self.photos_path {
+            return;
+        }
+        if self.shots.len() >= MAX_PHOTOS {
+            self.photo_error("Up to 5 photos");
+            return;
+        }
+        self.shots.push(Shot { photo, pose: None, done: vec![] });
+        self.cur = self.shots.len() - 1;
+        self.photos_dirty = true;
+    }
+
+    /// Whether photos are wanted now (so the app can skip decoding them).
+    pub fn wants_photos(&self) -> bool {
+        self.photos_path
+    }
+
+    /// Show one line on the Photos step until `tick` has seen it for a few
+    /// seconds.
+    pub fn photo_error(&mut self, msg: &str) {
+        self.error = Some((msg.chars().map(|c| if (' '..='~').contains(&c) { c } else { '?' }).take(40).collect(), None));
+    }
+
+    /// The message showing, if any.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_ref().map(|e| e.0.as_str())
+    }
+
+    /// The app's clock, in seconds, now and then (the maker has none): takes
+    /// a message down once it has been up long enough. Redraw if it did.
+    pub fn tick(&mut self, now: f64) -> Outcome {
+        match &mut self.error {
+            Some((_, at @ None)) => *at = Some(now),
+            Some((_, Some(t))) if now - *t >= ERROR_SECS => {
+                self.error = None;
+                return Outcome::Redraw;
+            }
+            _ => {}
+        }
+        Outcome::Nothing
+    }
+
+    /// How many photos there are, and which one is shown.
+    pub fn photo_count(&self) -> usize {
+        self.shots.len()
+    }
+
+    pub fn photo_shown(&self) -> usize {
+        self.cur
+    }
+
+    /// The shown photo's points so far, in photo pixels (skips left out).
+    pub fn marks(&self) -> Vec<(Point, (f32, f32))> {
+        self.shots.get(self.cur).map_or(vec![], |s| s.done.iter().filter_map(|&(p, at)| at.map(|a| (p, a))).collect())
+    }
+
+    /// The point the shown photo is asking for next.
+    pub fn next_point(&self) -> Option<Point> {
+        let s = self.shots.get(self.cur)?;
+        s.pose?;
+        measure::points(self.design.pet).iter().copied().find(|p| !s.done.iter().any(|d| d.0 == *p))
+    }
+
+    /// Where the shown photo is drawn, `(x, y, w, h)` in UI pixels: as big
+    /// as fits its box, whatever its shape, in the middle.
+    pub fn photo_rect(&self) -> Option<(f32, f32, f32, f32)> {
+        if self.step() != Step::Photos {
+            return None;
+        }
+        let p = &self.shots.get(self.cur)?.photo;
+        let (bx, by, bw, bh) = ((RX + 1) as f32, (AY + 1) as f32, (RW - 2) as f32, (AH - 2) as f32);
+        let k = (bw / p.w as f32).min(bh / p.h as f32);
+        let (w, h) = (p.w as f32 * k, p.h as f32 * k);
+        Some((bx + (bw - w) / 2.0, by + (bh - h) / 2.0, w, h))
+    }
+
+    /// A click that no button took, on the Photos step: grabs a marker, or
+    /// drops the next one on the photo.
+    fn click_photo(&mut self, x: f32, y: f32) -> Outcome {
+        let Some((rx, ry, rw, rh)) = self.photo_rect() else { return Outcome::Nothing };
+        let k = rw / self.shots[self.cur].photo.w as f32;
+        let near = |d: &(Point, Option<(f32, f32)>)| {
+            d.1.map(|(px, py)| ((rx + px * k - x).powi(2) + (ry + py * k - y).powi(2)).sqrt()).filter(|&dist| dist <= GRAB)
+        };
+        let nearest = self.shots[self.cur].done.iter().enumerate().filter_map(|(i, d)| near(d).map(|dist| (i, dist)));
+        if let Some((i, _)) = nearest.min_by(|a, b| a.1.total_cmp(&b.1)) {
+            self.grab = Some(i);
+            return Outcome::Redraw;
+        }
+        let Some(p) = self.next_point() else { return Outcome::Nothing };
+        if x < rx || y < ry || x >= rx + rw || y >= ry + rh {
+            return Outcome::Nothing;
+        }
+        self.shots[self.cur].done.push((p, Some(((x - rx) / k, (y - ry) / k))));
+        self.photos_dirty = true;
+        Outcome::Redraw
     }
 
     pub fn key(&mut self, k: MakerKey) -> Outcome {
@@ -325,7 +655,7 @@ impl Maker {
             MakerKey::Esc if self.confirm_delete => self.confirm_delete = false,
             MakerKey::Esc => return Outcome::Close,
             MakerKey::Enter if self.step() == Step::Name => return self.done(),
-            MakerKey::Enter => self.go(self.step + 1),
+            MakerKey::Enter => return self.next(),
             MakerKey::Char(c) if self.step() == Step::Name => {
                 if !(' '..='~').contains(&c) || self.name.chars().count() >= NAME_MAX {
                     return Outcome::Nothing;
@@ -362,8 +692,9 @@ impl Maker {
                 img.px[(y * W * z + x) * 4..][..4].copy_from_slice(&[c[0], c[1], c[2], 255]);
             }
         }
+        self.draw_photo(&mut img, z);
         let s = z as i32;
-        let (bx, by) = ((PX * 2 + PW) * s / 2 - anchor.0, (GROUND + 1) * s - anchor.1);
+        let (bx, by) =((PX * 2 + PW) * s / 2 - anchor.0, (GROUND + 1) * s - anchor.1);
         let (x0, y0, x1, y1) = ((PX + 1) * s, (PY + 12) * s, (PX + PW - 1) * s, (PY + PH - 1) * s);
         for py in 0..preview.h {
             for px in 0..preview.w {
@@ -382,6 +713,15 @@ impl Maker {
                 }
             }
         }
+        // on the Photos step, the part being asked for, marked on the pet
+        if let (Step::Photos, Some(pt)) = (self.step(), self.next_point()) {
+            let (fx, fy) = pet_spot(self.design.pet, pt);
+            let unit = preview.w as f32 / 3.1;
+            let (cx, cy) = ((PX * 2 + PW) as f32 * s as f32 / 2.0 + fx * unit, (GROUND + 1) as f32 * s as f32 + fy * unit);
+            let clip = (x0, y0, x1, y1);
+            disc(&mut img, cx, cy, 3.0 * s as f32, OUTLINE, clip);
+            disc(&mut img, cx, cy, 2.0 * s as f32, AIM, clip);
+        }
         img
     }
 
@@ -392,8 +732,9 @@ impl Maker {
         c.rect(1, 1, W as i32 - 2, H as i32 - 2, FILL);
         c.text("Make a pet", 6, 5, TEXT);
         c.button("x", W as i32 - 12, 3, false, Hit::Close);
-        for i in 0..STEPS.len() {
-            let x = W as i32 - 16 - (STEPS.len() - i) as i32 * 7;
+        let n = self.steps().len();
+        for i in 0..n {
+            let x = W as i32 - 16 - (n - i) as i32 * 7;
             if i == self.step {
                 c.rect(x, 6, 5, 5, SEL);
             } else if i <= self.reached {
@@ -412,8 +753,8 @@ impl Maker {
         let shown: String = self.name.chars().take(14).collect();
         c.text(&shown, PX + (PW - font::text_width(&shown) as i32) / 2, PY + 4, TEXT);
         // the step
-        let count = format!("{}/{}", self.step + 1, STEPS.len());
-        c.text(STEPS[self.step], RX, PY + 1, TEXT);
+        let count = format!("{}/{}", self.step + 1, n);
+        c.text(step_name(self.step()), RX, PY + 1, TEXT);
         c.text(&count, W as i32 - 6 - font::text_width(&count) as i32, PY + 1, DIM);
         let pet = self.design.pet;
         match self.step() {
@@ -422,10 +763,14 @@ impl Maker {
                 c.wide_button("Rabbit", Y0 + 12, pet == Pet::Rabbit, Hit::Animal(Pet::Rabbit));
                 c.text("Cat (later)", RX + 3, Y0 + 26, DIM);
             }
-            Step::Photos => {}
+            Step::Photos => self.photos_layout(&mut c),
             Step::Breed => {
-                for (i, b) in breeds(pet).iter().enumerate() {
-                    c.wide_button(b.name, Y0 + 12 * i as i32, i == self.breed, Hit::Breed(i));
+                let list = breeds(pet);
+                for (i, b) in list.iter().enumerate() {
+                    c.wide_button(b.name, Y0 + 12 * i as i32, i == self.breed && !self.photos_path, Hit::Breed(i));
+                }
+                if !self.editing {
+                    c.wide_button("From photos...", Y0 + 12 * list.len() as i32, self.photos_path, Hit::FromPhotos);
                 }
             }
             Step::Shape => {
@@ -444,8 +789,14 @@ impl Maker {
                 for &(f, label) in areas(pet) {
                     c.text(label, RX, y + 2, TEXT);
                     let cur = self.coat_of(f);
+                    // the photo's colour, first, so it can be gone back to
+                    let from_photo = self.photo_coat.iter().find(|(pf, _)| *pf == f).map(|c| c.1);
+                    if let Some(col) = from_photo {
+                        c.swatch(format!("swatch:{label}:photo"), SW_X, y, Some(col), col == cur, Hit::Swatch(f, col));
+                    }
+                    let off = from_photo.is_some() as i32;
                     for (i, &col) in SWATCHES.iter().enumerate() {
-                        c.swatch(format!("swatch:{label}:{i}"), SW_X + SW_STEP * i as i32, y, Some(col), col == cur, Hit::Swatch(f, col));
+                        c.swatch(format!("swatch:{label}:{i}"), SW_X + SW_STEP * (i as i32 + off), y, Some(col), col == cur, Hit::Swatch(f, col));
                     }
                     y += 14;
                 }
@@ -489,9 +840,141 @@ impl Maker {
         if self.step > 0 {
             c.button("< Back", RX, by, false, Hit::Back);
         }
-        let next = if self.step == STEPS.len() - 1 { "Done" } else { "Next >" };
+        let next = if self.step == n - 1 { "Done" } else { "Next >" };
         c.button(next, W as i32 - 6 - (font::text_width(next) as i32 + 6), by, true, Hit::Next);
         (c.art, c.regions)
+    }
+
+    /// The Photos step's controls: tabs in the title row, then Open and Skip,
+    /// the pose, two lines of prompt and the photo's box (drawn into by
+    /// `draw`, which has the zoom).
+    fn photos_layout(&self, c: &mut Canvas) {
+        let tab_x = |i: usize| BAR_X + 9 * i as i32;
+        for i in 0..self.shots.len() {
+            c.tab((i + 1).to_string(), &(i + 1).to_string(), tab_x(i), i == self.cur, Hit::Tab(i));
+        }
+        if !self.shots.is_empty() {
+            c.tab("remove".into(), "x", tab_x(MAX_PHOTOS), false, Hit::Remove);
+        }
+        c.button("Open photo...", RX, 30, false, Hit::Open);
+        if self.next_point().is_some() {
+            let w = font::text_width("Skip") as i32 + 6;
+            c.button("Skip", RX + RW - w, 30, false, Hit::Skip);
+        }
+        let shot = self.shots.get(self.cur);
+        if let Some(s) = shot {
+            let mut x = RX;
+            for (p, label) in [(Pose::Standing, "Standing"), (Pose::Sitting, "Sitting"), (Pose::Other, "Other")] {
+                x = c.pose_button(label, x, 42, s.pose == Some(p), Hit::Pose(p));
+            }
+        }
+        let (text, col) = match (&self.error, shot) {
+            (Some((e, _)), _) => (e.as_str(), ERR),
+            (None, None) => (HELP_NONE, DIM),
+            (None, Some(s)) if s.pose.is_none() => (HELP_POSE, TEXT),
+            _ => match self.next_point() {
+                Some(p) => (measure::prompt(self.design.pet, p), TEXT),
+                None => (HELP_DONE, DIM),
+            },
+        };
+        for (i, line) in wrap(text).iter().enumerate() {
+            c.text(line, RX, 54 + 8 * i as i32, col);
+        }
+        c.boxed(RX, AY, RW, AH, SHADE, OUTLINE);
+    }
+
+    /// The shown photo at screen resolution in its box, with its markers.
+    fn draw_photo(&self, img: &mut Rgba, z: usize) {
+        let Some((rx, ry, rw, rh)) = self.photo_rect() else { return };
+        let shot = &self.shots[self.cur];
+        let p = &shot.photo;
+        let zf = z as f32;
+        let k = rw / p.w as f32;
+        // a few samples a screen pixel when the photo is shrunk
+        let n = (1.0 / (k * zf)).ceil().clamp(1.0, 4.0) as usize;
+        let (x0, y0, x1, y1) = ((rx * zf).round() as i32, (ry * zf).round() as i32, ((rx + rw) * zf).round() as i32, ((ry + rh) * zf).round() as i32);
+        for sy in y0.max(0)..y1.min(img.h as i32) {
+            for sx in x0.max(0)..x1.min(img.w as i32) {
+                let mut sum = [0u32; 3];
+                for j in 0..n {
+                    for i in 0..n {
+                        let u = ((sx as f32 + (i as f32 + 0.5) / n as f32) / zf - rx) / k;
+                        let v = ((sy as f32 + (j as f32 + 0.5) / n as f32) / zf - ry) / k;
+                        let (px, py) = ((u as usize).min(p.w as usize - 1), (v as usize).min(p.h as usize - 1));
+                        let o = (py * p.w as usize + px) * 3;
+                        for (s, &b) in sum.iter_mut().zip(&p.rgb[o..o + 3]) {
+                            *s += b as u32;
+                        }
+                    }
+                }
+                let d = &mut img.px[(sy as usize * img.w + sx as usize) * 4..][..4];
+                for (dk, s) in d.iter_mut().zip(sum) {
+                    *dk = ((s + (n * n) as u32 / 2) / (n * n) as u32) as u8;
+                }
+                d[3] = 255;
+            }
+        }
+        let clip = (RX * z as i32, AY * z as i32, (RX + RW) * z as i32, (AY + AH) * z as i32);
+        let order = measure::points(self.design.pet);
+        for (pt, (px, py)) in shot.done.iter().filter_map(|&(pt, at)| at.map(|a| (pt, a))) {
+            let (cx, cy) = ((rx + px * k) * zf, (ry + py * k) * zf);
+            disc(img, cx, cy, 2.5 * zf, OUTLINE, clip);
+            disc(img, cx, cy, 1.5 * zf, MARK, clip);
+            let digit = char::from_digit(order.iter().position(|&o| o == pt).map_or(0, |i| i as u32 + 1), 10).unwrap_or('?');
+            // beside the marker, on whichever side has room
+            let lx = if cx + 3.0 * zf + 5.0 * zf > clip.2 as f32 { cx - 8.0 * zf } else { cx + 3.0 * zf };
+            let ly = if cy - 9.0 * zf < clip.1 as f32 { cy + 3.0 * zf } else { cy - 9.0 * zf };
+            for (dx, dy, col) in [(-1, 0, OUTLINE), (1, 0, OUTLINE), (0, -1, OUTLINE), (0, 1, OUTLINE), (0, 0, SEL_TEXT)] {
+                glyph_px(img, digit, lx.round() as i32 + dx * z as i32, ly.round() as i32 + dy * z as i32, z as i32, col, clip);
+            }
+        }
+    }
+}
+
+/// Split a line into at most two of at most 20 letters, at spaces.
+fn wrap(s: &str) -> Vec<String> {
+    let mut lines: Vec<String> = vec![String::new()];
+    for w in s.split(' ') {
+        let last = lines.last_mut().unwrap();
+        if last.is_empty() || last.len() + 1 + w.len() <= 20 {
+            if !last.is_empty() {
+                last.push(' ');
+            }
+            last.push_str(w);
+        } else if lines.len() < 2 {
+            lines.push(w.to_string());
+        }
+    }
+    lines.into_iter().map(|l| l.chars().take(20).collect()).collect()
+}
+
+/// A filled round dot at `(cx, cy)`, radius `r` (screen pixels), kept inside
+/// `clip` (x0, y0, x1, y1).
+fn disc(img: &mut Rgba, cx: f32, cy: f32, r: f32, col: [u8; 3], clip: (i32, i32, i32, i32)) {
+    for y in ((cy - r).floor() as i32).max(clip.1)..((cy + r).ceil() as i32 + 1).min(clip.3).min(img.h as i32) {
+        for x in ((cx - r).floor() as i32).max(clip.0)..((cx + r).ceil() as i32 + 1).min(clip.2).min(img.w as i32) {
+            if (x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2) <= r * r {
+                img.px[(y as usize * img.w + x as usize) * 4..][..3].copy_from_slice(&col);
+            }
+        }
+    }
+}
+
+/// One font glyph with its top left at screen pixel `(x, y)`, each of its
+/// pixels `z` screen pixels square, kept inside `clip`.
+fn glyph_px(img: &mut Rgba, ch: char, x: i32, y: i32, z: i32, col: [u8; 3], clip: (i32, i32, i32, i32)) {
+    let g = font::glyph(ch).unwrap_or([0; 7]);
+    for (row, bits) in g.iter().enumerate() {
+        for c in 0..font::W {
+            if bits >> (font::W - 1 - c) & 1 == 1 {
+                let (gx, gy) = (x + c as i32 * z, y + row as i32 * z);
+                for yy in gy.max(clip.1)..(gy + z).min(clip.3).min(img.h as i32) {
+                    for xx in gx.max(clip.0)..(gx + z).min(clip.2).min(img.w as i32) {
+                        img.px[(yy as usize * img.w + xx as usize) * 4..][..3].copy_from_slice(&col);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -499,7 +982,12 @@ impl Maker {
 pub fn all_copy() -> Vec<&'static str> {
     let mut v = vec!["Make a pet", "x", "Dog", "Rabbit", "Cat (later)", "Collar", "Type a name", "Then they hop onto", "your taskbar."];
     v.extend(["Delete", "Delete ?", "Yes", "No", "Random", "< Back", "Next >", "Done", "0123456789/"]);
-    v.extend(STEPS);
+    v.extend(["From photos...", "Open photo...", "Skip", "Standing", "Sitting", "Other", "Up to 5 photos", "Drop photos here"]);
+    v.extend([HELP_NONE, HELP_POSE, HELP_DONE]);
+    for pet in [Pet::Dog, Pet::Rabbit] {
+        v.extend(measure::points(pet).iter().map(|&p| measure::prompt(pet, p)));
+    }
+    v.extend(PLAIN_STEPS.iter().chain(&PHOTO_STEPS).map(|&s| step_name(s)));
     v.extend(NAMES);
     v.extend(areas(Pet::Dog).iter().map(|a| a.1));
     v.extend(areas(Pet::Rabbit).iter().map(|a| a.1));
@@ -562,6 +1050,30 @@ impl Canvas {
         }
         self.text(label, x + 3, y + 2, if on { SEL_TEXT } else { TEXT });
         self.region(label.to_string(), x, y, w, 11, hit);
+    }
+
+    /// A small tab in the title row (the photo's number, or the "x" that
+    /// removes the shown one); `name` is what `target` finds it by.
+    fn tab(&mut self, name: String, label: &str, x: i32, on: bool, hit: Hit) {
+        if on {
+            self.rect(x, 17, 8, 10, SEL);
+        } else {
+            self.boxed(x, 17, 8, 10, FILL, DIM);
+        }
+        self.text(label, x + 2, 19, if on { SEL_TEXT } else { TEXT });
+        self.region(name, x, 17, 8, 10, hit);
+    }
+
+    /// A button with one pixel of room round its label, to fit three in a
+    /// row; returns its right edge.
+    fn pose_button(&mut self, label: &str, x: i32, y: i32, on: bool, hit: Hit) -> i32 {
+        let w = font::text_width(label) as i32 + 2;
+        if on {
+            self.rect(x, y, w, 11, SEL);
+        }
+        self.text(label, x + 1, y + 2, if on { SEL_TEXT } else { TEXT });
+        self.region(label.to_string(), x, y, w, 11, hit);
+        x + w
     }
 
     /// A choice as wide as the right-hand column.
