@@ -785,7 +785,7 @@ impl App {
             match crate::photo::load::open(&path) {
                 Ok(p) => m.maker.add_photo(p),
                 Err(crate::photo::load::LoadError::TooBig) => m.maker.photo_error("That photo is too big"),
-                Err(_) => m.maker.photo_error("Not a JPEG or PNG photo"),
+                Err(_) => m.maker.photo_error("Not a JPEG, PNG or WebP"),
             }
         }
         self.draw_maker(self.now(), true);

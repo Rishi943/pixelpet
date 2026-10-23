@@ -238,3 +238,23 @@ fn files_are_judged_by_content_not_extension() {
     assert!(matches!(open(&dir.join("missing.png")), Err(LoadError::Io(_))));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn webp_bytes(w: u32, h: u32, color: image_webp::ColorType, data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    image_webp::WebPEncoder::new(&mut out).encode(data, w, h, color).unwrap();
+    out
+}
+
+#[test]
+fn webp_comes_out_exact_and_alpha_goes_over_white() {
+    // what a browser saves, often named .jpg (lossless here, so exact)
+    let px = [255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30, 200, 100, 50, 255, 255, 255];
+    let p = decode(&webp_bytes(3, 2, image_webp::ColorType::Rgb8, &px)).unwrap();
+    assert_eq!((p.w, p.h, p.rgb.as_slice()), (3, 2, &px[..]));
+    let clear = decode(&webp_bytes(1, 1, image_webp::ColorType::Rgba8, &[0, 0, 0, 0])).unwrap();
+    assert_eq!(clear.rgb, [255, 255, 255]);
+    // cut short, it is an error, not a panic
+    let mut cut = webp_bytes(3, 2, image_webp::ColorType::Rgb8, &px);
+    cut.truncate(cut.len() / 2);
+    assert!(decode(&cut).is_err());
+}

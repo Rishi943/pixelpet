@@ -1,4 +1,4 @@
-//! Reading a JPEG or PNG into an upright, small `Photo`.
+//! Reading a JPEG, PNG or WebP into an upright, small `Photo`.
 
 use std::io::Cursor;
 use std::path::Path;
@@ -18,7 +18,7 @@ const MAX_FILE: u64 = 64 << 20;
 #[derive(Debug)]
 pub enum LoadError {
     Io(std::io::Error),
-    /// Not a JPEG or PNG, or one that can't be decoded.
+    /// Not a JPEG, PNG or WebP, or one that can't be decoded.
     NotAPhoto,
     /// The file or the picture is too big to open.
     TooBig,
@@ -34,13 +34,17 @@ pub fn open(path: &Path) -> Result<Photo, LoadError> {
     decode(&bytes)
 }
 
-/// Decode a JPEG or PNG, told apart by its first bytes.
+/// Decode a JPEG, PNG or WebP, told apart by its first bytes.
 pub fn decode(bytes: &[u8]) -> Result<Photo, LoadError> {
     let (w, h, rgb, orientation) = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         let (w, h, rgb) = decode_jpeg(bytes)?;
         (w, h, rgb, exif_orientation(bytes))
     } else if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         let (w, h, rgb) = decode_png(bytes)?;
+        (w, h, rgb, 1)
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        // what browsers often save, even as ".jpg"
+        let (w, h, rgb) = decode_webp(bytes)?;
         (w, h, rgb, 1)
     } else {
         return Err(LoadError::NotAPhoto);
@@ -107,6 +111,25 @@ fn decode_png(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), LoadError> {
         // alpha over white
         rgb.extend(c.map(|v| ((v as u32 * a as u32 + 255 * (255 - a as u32) + 127) / 255) as u8));
     }
+    Ok((w, h, rgb))
+}
+
+fn decode_webp(bytes: &[u8]) -> Result<(usize, usize, Vec<u8>), LoadError> {
+    let mut d = image_webp::WebPDecoder::new(Cursor::new(bytes)).map_err(|_| LoadError::NotAPhoto)?;
+    let (w, h) = d.dimensions();
+    let (w, h) = (w as usize, h as usize);
+    check_size(w, h)?;
+    let mut buf = vec![0; d.output_buffer_size().ok_or(LoadError::TooBig)?];
+    // an animated one gives its first frame
+    d.read_image(&mut buf).map_err(|_| LoadError::NotAPhoto)?;
+    if !d.has_alpha() {
+        return Ok((w, h, buf));
+    }
+    // alpha over white
+    let rgb = buf
+        .chunks_exact(4)
+        .flat_map(|p| [0, 1, 2].map(|i| ((p[i] as u32 * p[3] as u32 + 255 * (255 - p[3] as u32) + 127) / 255) as u8))
+        .collect();
     Ok((w, h, rgb))
 }
 

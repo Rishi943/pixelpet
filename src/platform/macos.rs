@@ -143,7 +143,7 @@ impl Platform for Mac {
             let panel = NSOpenPanel::openPanel(mtm);
             panel.setAllowsMultipleSelection(true);
             panel.setCanChooseDirectories(false);
-            let types: Vec<_> = ["jpg", "jpeg", "png"].into_iter().map(NSString::from_str).collect();
+            let types: Vec<_> = ["jpg", "jpeg", "png", "webp"].into_iter().map(NSString::from_str).collect();
             #[allow(deprecated)] // allowedContentTypes needs UniformTypeIdentifiers
             panel.setAllowedFileTypes(Some(&NSArray::from_vec(types)));
             if panel.runModal() != NSModalResponseOK {

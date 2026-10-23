@@ -11,6 +11,7 @@ name = "PixelPet"
 path = "src/main.rs"
 
 [dependencies]
+image-webp = "0.2.4"
 png = "0.18.1"
 winit = "0.30"
 zune-jpeg = "0.5.15"

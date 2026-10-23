@@ -201,7 +201,7 @@ unsafe fn open_dialog() -> Option<Vec<PathBuf>> {
         let dlg = dlg as Com;
         let picked = (|| {
             // IFileDialog: SetFileTypes 4, GetOptions 10, SetOptions 9, SetTitle 17
-            let (name, spec) = (wide("Photos (*.jpg;*.jpeg;*.png)"), wide("*.jpg;*.jpeg;*.png"));
+            let (name, spec) = (wide("Photos (*.jpg;*.jpeg;*.png;*.webp)"), wide("*.jpg;*.jpeg;*.png;*.webp"));
             let filter = FilterSpec { name: name.as_ptr(), spec: spec.as_ptr() };
             com!(dlg, 4, fn(u32, *const FilterSpec), 1, &filter as *const FilterSpec);
             let title = wide("Choose photos");

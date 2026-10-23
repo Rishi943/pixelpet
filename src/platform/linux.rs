@@ -175,7 +175,7 @@ impl Platform for X11 {
                 ["--file-selection", "--multiple", "--separator=\n", "--title=Choose photos"]
                     .map(String::from)
                     .into_iter()
-                    .chain(["--file-filter=Photos | *.jpg *.jpeg *.png *.JPG *.JPEG *.PNG".to_string()])
+                    .chain(["--file-filter=Photos | *.jpg *.jpeg *.png *.webp *.JPG *.JPEG *.PNG *.WEBP".to_string()])
                     .collect(),
             ),
             (
@@ -183,7 +183,7 @@ impl Platform for X11 {
                 ["--getopenfilename", "--multiple", "--separate-output"]
                     .map(String::from)
                     .into_iter()
-                    .chain([home, "image/jpeg image/png".to_string()])
+                    .chain([home, "image/jpeg image/png image/webp".to_string()])
                     .collect(),
             ),
         ];
