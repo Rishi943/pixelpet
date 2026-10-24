@@ -107,6 +107,31 @@
   .first li { margin: 6px 0; }
   kbd { font: inherit; background: var(--cream-deep); border: 2px solid var(--ink); padding: 0 6px; }
 
+  .addpet .body { display: grid; grid-template-columns: 120px 1fr; gap: 20px; align-items: center; padding: 16px 18px; }
+  .addpet-art { width: 110px; justify-self: center; }
+  .addpet p { margin: 0 0 12px; }
+  .addpet .small { color: var(--muted); font-size: 19px; margin: 10px 0 0; }
+  .cta {
+    display: inline-block; text-decoration: none; background: var(--blue); color: #fff;
+    font: 400 20px "Silkscreen", monospace; padding: 8px 18px;
+    border: 3px solid var(--ink); box-shadow: 4px 4px 0 rgba(0,0,0,.25);
+  }
+  .cta:hover, .cta:focus-visible { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 rgba(0,0,0,.25); outline: none; }
+  #petform label { display: block; margin: 0 0 12px; }
+  #petform input:not([type=checkbox]), #petform select, #petform textarea {
+    display: block; width: 100%; margin-top: 4px; padding: 6px 8px;
+    font: inherit; color: var(--ink); background: #fff8ea; border: 3px solid var(--ink); border-radius: 0;
+  }
+  #petform input[type=file] { padding: 6px; }
+  #petform .check { display: flex; gap: 10px; align-items: flex-start; }
+  #petform .check input { width: 20px; height: 20px; margin-top: 4px; flex: none; accent-color: var(--blue); }
+  #petform .cf-turnstile { margin: 4px 0 12px; min-height: 65px; }
+  #petform button { cursor: pointer; }
+  #petform button[disabled] { opacity: .6; cursor: progress; }
+  #petform-status.err { color: #a2241f; }
+  #petform-status.done { color: #2c6b33; }
+  @media (max-width: 720px) { .addpet .body { grid-template-columns: 1fr; } }
+
   footer { text-align: center; color: #e4ecf7; padding: 10px 0 48px; font-size: 19px; }
 
   @media (max-width: 720px) {
@@ -152,7 +177,7 @@
       <b>Linux</b><span>AppImage · 2.5 MB</span><br><em>Download</em>
     </a>
   </div>
-  <p class="fine">Free. One file, no installer, no account. Updates itself.</p>
+  <p class="fine">Free. One file, no installer, no account. Updates itself.<br>Want your pet in it? <a href="#add-your-pet">Send us a photo</a>.</p>
 
   <section id="video">
     <h2>See it move</h2>
@@ -201,6 +226,35 @@
     </div>
   </section>
 
+  <section class="addpet" id="add-your-pet">
+    <h2>Add your pet</h2>
+    <div class="panel">
+      <div class="bar"><span>Send a photo</span><span class="dots"><i></i><i></i><i></i></span></div>
+      <div class="body">
+        <img class="addpet-art" src="img/oreo-sit.gif" alt="Oreo the cat, made from his photos">
+        <form id="petform" data-api="https://pixelpet-upload.braveaisolutions.workers.dev" data-sitekey="0x4AAAAAAFkM0NLIAfjDHJiI">
+          <p>Mellow and Oreo started as photos. Send a few of yours (a dog, cat or rabbit) and we'll try to make them a pixel pet for everyone to adopt.</p>
+          <label>Pet's name <input name="name" maxlength="40" required autocomplete="off"></label>
+          <label>Kind of animal
+            <select name="species" required>
+              <option>Dog</option><option>Cat</option><option>Rabbit</option><option>Something else</option>
+            </select>
+          </label>
+          <label>Photos (up to 5: one from the side, one of the face helps most)
+            <input name="photos" type="file" accept="image/*" multiple required>
+          </label>
+          <label>Anything we should know? <span class="small">(optional)</span>
+            <textarea name="notes" maxlength="1000" rows="2" placeholder="Green eyes, a red collar with a bell"></textarea>
+          </label>
+          <label class="check"><input type="checkbox" name="consent" required> I took these photos (or may share them) and they can be used to make a pixel pet.</label>
+          <div class="cf-turnstile" data-sitekey="0x4AAAAAAFkM0NLIAfjDHJiI" data-theme="light"></div>
+          <button class="cta" type="submit">Send</button>
+          <p class="small" id="petform-status" role="status" aria-live="polite">No account needed. Photos are kept private, made smaller, and location data is removed before they're sent.</p>
+        </form>
+      </div>
+    </div>
+  </section>
+
   <section class="first">
     <h2>First launch</h2>
     <div class="panel">
@@ -221,6 +275,85 @@
 <footer>
   <a href="https://github.com/Rishi943/pixelpet">Source on GitHub</a> · <a href="https://github.com/Rishi943/pixelpet/releases">All releases</a>
 </footer>
+
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script>
+// Send a pet: shrink each photo to 1600 px as JPEG (dropping location data),
+// then post them one at a time to the upload Worker.
+(function () {
+  const form = document.getElementById("petform");
+  const status = document.getElementById("petform-status");
+  const button = form.querySelector("button");
+  const api = form.dataset.api;
+  const say = (text, cls) => { status.textContent = text; status.className = "small " + (cls || ""); };
+
+  async function shrink(file) {
+    const img = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k);
+    c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.86));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  async function call(path, body, headers) {
+    let r;
+    try {
+      r = await fetch(api + path, { method: "POST", body, headers });
+    } catch {
+      throw new Error("Couldn't reach the server. Please check your connection and try again.");
+    }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Couldn't reach the server. Please try again later.");
+    return j;
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const files = [...form.elements.photos.files].slice(0, 5);
+    if (!files.length) return say("Please add at least one photo.", "err");
+    const token = window.turnstile && turnstile.getResponse();
+    if (!token) return say("Please wait for the robot check to finish, then send again.", "err");
+    button.disabled = true;
+    try {
+      say("Getting ready...");
+      const { session } = await call("/start", JSON.stringify({ turnstile: token }), { "Content-Type": "application/json" });
+      const photos = [];
+      for (let i = 0; i < files.length; i++) {
+        say(`Sending photo ${i + 1} of ${files.length}...`);
+        let b64;
+        try {
+          b64 = await shrink(files[i]);
+        } catch {
+          throw new Error(`Photo ${i + 1} couldn't be opened. Please use a JPG or PNG.`);
+        }
+        photos.push(await call("/photo", b64, { "X-Session": session, "X-Index": String(i + 1), "Content-Type": "text/plain" }));
+      }
+      say("Almost done...");
+      await call("/submit", JSON.stringify({
+        session,
+        name: form.elements["name"].value,
+        species: form.elements.species.value,
+        notes: form.elements.notes.value,
+        consent: form.elements.consent.checked,
+        photos,
+      }), { "Content-Type": "application/json" });
+      form.reset();
+      say(`Thank you! We've got your photos. If ${files.length > 1 ? "they make" : "it makes"} a good pixel pet, they'll turn up in an update.`, "done");
+    } catch (err) {
+      say(err.message, "err");
+    } finally {
+      button.disabled = false;
+      if (window.turnstile) turnstile.reset();
+    }
+  });
+})();
+</script>
 
 </body>
 </html>
