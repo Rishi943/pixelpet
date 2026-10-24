@@ -233,7 +233,7 @@
       <div class="body">
         <img class="addpet-art" src="img/oreo-sit.gif" alt="Oreo the cat, made from his photos">
         <form id="petform" data-api="https://pixelpet-upload.braveaisolutions.workers.dev" data-sitekey="0x4AAAAAAFkM0NLIAfjDHJiI">
-          <p>Mellow and Oreo started as photos. Send a few of yours (a dog, cat or rabbit) and we'll try to make them a pixel pet for everyone to adopt.</p>
+          <p>Send a few photos of your dog, cat or rabbit and we'll make them a pixel pet for everyone to adopt.</p>
           <label>Pet's name <input name="name" maxlength="40" required autocomplete="off"></label>
           <label>Kind of animal
             <select name="species" required>
@@ -344,7 +344,7 @@
         photos,
       }), { "Content-Type": "application/json" });
       form.reset();
-      say(`Thank you! We've got your photos. If ${files.length > 1 ? "they make" : "it makes"} a good pixel pet, they'll turn up in an update.`, "done");
+      say("Thank you! We've got your photos. Look out for your pet in an upcoming update.", "done");
     } catch (err) {
       say(err.message, "err");
     } finally {
