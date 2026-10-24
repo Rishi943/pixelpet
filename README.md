@@ -10,7 +10,7 @@
 <a href="https://rishi943.github.io/pixelpet/"><b>Website</b></a> ·
 <a href="https://github.com/Rishi943/pixelpet/releases/latest"><b>Download</b></a></p>
 
-PixelPet walks along the top of your taskbar or Dock, naps when you leave it alone, and can be petted, played with and fed. Clicks pass straight through the space around it, so it never gets in the way. It's one small file with no installer, no internet and no account.
+PixelPet walks along the top of your taskbar or Dock, naps when you leave it alone, and can be petted, played with and fed. Clicks pass straight through the space around it, so it never gets in the way. It's one small file with no installer and no account. It goes online only to check for updates, and offers them in its right-click menu.
 
 ## Download
 

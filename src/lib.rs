@@ -6,5 +6,6 @@ pub mod rig;
 pub mod scene;
 pub mod settings;
 pub mod ui;
+pub mod update;
 pub mod view;
 pub mod window;

@@ -56,10 +56,14 @@ jobs:
         run: bash tools/ci/make-app.sh PixelPet-universal "${GITHUB_REF_NAME#v}"
       - name: smoke the bundled app
         run: bash tools/ci/smoke-macos.sh dist/PixelPet.app/Contents/MacOS/PixelPet
+      # the app alone, zipped: what the in-app updater swaps in
+      - run: ditto -c -k --keepParent dist/PixelPet.app PixelPet-mac.zip
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: PixelPet.dmg
+          path: |
+            PixelPet.dmg
+            PixelPet-mac.zip
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -128,4 +132,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --title "PixelPet $GITHUB_REF_NAME" \
             --notes-file .github/release-notes.md \
-            out/windows/PixelPet.exe out/macos/PixelPet.dmg out/linux/PixelPet-x86_64.AppImage
+            out/windows/PixelPet.exe out/macos/PixelPet.dmg out/macos/PixelPet-mac.zip out/linux/PixelPet-x86_64.AppImage

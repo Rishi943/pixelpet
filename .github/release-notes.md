@@ -1,4 +1,6 @@
-PixelPet is a small pixel pet that lives on your desktop. It walks along the bottom of the screen, naps, and can be petted, played with and fed. One file, no installer, no internet.
+PixelPet is a small pixel pet that lives on your desktop. It walks along the bottom of the screen, naps, and can be petted, played with and fed. One file, no installer, no account.
+
+**New in this version: updates.** PixelPet checks for a new version when it starts and once a day. When there is one, the right-click menu says "Update to v…": click it and PixelPet downloads the update, checks it, and restarts. That check is the only time it goes online. If you have v0.1.0, download this version once by hand; after that it updates itself.
 
 **Downloads**
 
@@ -16,4 +18,4 @@ PixelPet isn't signed yet, so each system asks before running it the first time:
 
 The first time it runs, PixelPet opens a pet maker: pick an animal and a breed, shape and colour them, and give them a name. Make more pets any time with "Make a pet..." in the right-click menu.
 
-Right-click the pet for its menu: which pet, size, opacity, what happens over fullscreen apps, launch on startup, and quit.
+Right-click the pet for its menu: which pet, size, opacity, what happens over fullscreen apps, launch on startup, updates, and quit.

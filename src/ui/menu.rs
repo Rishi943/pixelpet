@@ -20,6 +20,8 @@ pub enum Action {
     SetFullscreen(FullscreenMode),
     SetFullscreenOpacity(u8),
     ToggleAutostart,
+    /// "Update to v...": download the new version and restart into it.
+    Update,
     /// The Quit row: asks "Quit PixelPet? Yes | No" instead of quitting.
     AskQuit,
     CancelQuit,
@@ -38,7 +40,7 @@ pub struct Row {
 /// the app's job; this only changes fields.
 pub fn apply(a: &Action, s: &mut Settings) {
     match *a {
-        Action::PrevPet | Action::NextPet | Action::EditPet | Action::MakePet => {}
+        Action::PrevPet | Action::NextPet | Action::EditPet | Action::MakePet | Action::Update => {}
         Action::SetSize(z) => s.size = z,
         Action::SetOpacity(o) => s.opacity = o,
         Action::SetFullscreen(f) => s.fullscreen = f,
@@ -93,24 +95,38 @@ pub struct Menu {
 
 const STEPS: [u8; 4] = [25, 50, 75, 100];
 
+/// The update line above Quit, when there is one.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UpdateLine {
+    /// "Update to v0.1.1", clickable.
+    Offer(String),
+    /// A plain line: "Updating..." or why it failed.
+    Say(String),
+}
+
 impl Menu {
     /// The menu for these settings, showing `pet_name` as the pet on screen.
     pub fn new(s: &Settings, pet_name: &str) -> Menu {
-        Menu::build(s, pet_name, false, None)
+        Menu::build(s, pet_name, false, None, None)
     }
 
     /// The menu with its last line asking "Quit PixelPet? Yes | No".
     pub fn confirming_quit(s: &Settings, pet_name: &str) -> Menu {
-        Menu::build(s, pet_name, true, None)
+        Menu::build(s, pet_name, true, None, None)
     }
 
     /// The menu with a line under "Launch on startup" saying why it could
     /// not be turned on.
     pub fn with_note(s: &Settings, pet_name: &str, note: &str) -> Menu {
-        Menu::build(s, pet_name, false, Some(note))
+        Menu::build(s, pet_name, false, Some(note), None)
     }
 
-    fn build(s: &Settings, pet_name: &str, confirm_quit: bool, note: Option<&str>) -> Menu {
+    /// Any of the above, with an update line above Quit.
+    pub fn full(s: &Settings, pet_name: &str, confirm_quit: bool, note: Option<&str>, update: Option<&UpdateLine>) -> Menu {
+        Menu::build(s, pet_name, confirm_quit, note, update)
+    }
+
+    fn build(s: &Settings, pet_name: &str, confirm_quit: bool, note: Option<&str>, update: Option<&UpdateLine>) -> Menu {
         let mut rows: Vec<Row> = vec![];
         let mut lines: Vec<Line> = vec![];
         let mut line = |rows: &mut Vec<Row>, heading: Option<&str>, opts: Vec<(String, Action, bool)>| {
@@ -124,6 +140,7 @@ impl Menu {
                 cells.push(rows.len() - 1);
             }
             lines.push(Line { heading: h, cells, own_column: false, tight: false });
+            lines.len() - 1
         };
         line(
             &mut rows,
@@ -158,10 +175,12 @@ impl Menu {
         );
         let startup = format!("Launch on startup [{}]", if s.autostart { "on" } else { "off" });
         line(&mut rows, None, vec![(startup, Action::ToggleAutostart, s.autostart)]);
-        if let Some(n) = note {
-            line(&mut rows, Some(n), vec![]);
-        }
+        let note_line = note.map(|n| line(&mut rows, Some(n), vec![]));
         line(&mut rows, None, vec![("Make a pet...".into(), Action::MakePet, false)]);
+        let update_line = update.map(|u| match u {
+            UpdateLine::Offer(t) => line(&mut rows, None, vec![(t.clone(), Action::Update, true)]),
+            UpdateLine::Say(t) => line(&mut rows, Some(t), vec![]),
+        });
         if confirm_quit {
             line(
                 &mut rows,
@@ -172,9 +191,8 @@ impl Menu {
         } else {
             line(&mut rows, None, vec![("Quit".into(), Action::AskQuit, false)]);
         }
-        if note.is_some() {
-            // the note sits on its own, so its length doesn't push the options right
-            let i = lines.len() - 3;
+        // notes sit on their own, so their length doesn't push the options right
+        for i in note_line.into_iter().chain(update_line.filter(|_| matches!(update, Some(UpdateLine::Say(_))))) {
             lines[i].own_column = true;
         }
         lines[0].tight = true; // Pet: < name >

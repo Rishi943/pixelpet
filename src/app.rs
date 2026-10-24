@@ -9,7 +9,8 @@ use crate::rig::{self, Anim, Look};
 use crate::settings::{self, Settings};
 use crate::scene::{Hit, Part, Scene, Sprite};
 use crate::ui::maker::{self, Maker, MakerKey, Outcome};
-use crate::ui::menu::{self, Action, Menu};
+use crate::ui::menu::{self, Action, Menu, UpdateLine};
+use crate::update::{self, Updater};
 use crate::view::View;
 use crate::window::PetWindow;
 use std::collections::VecDeque;
@@ -122,6 +123,9 @@ pub struct App {
     maker: Option<MakerOpen>,
     /// first launch: open the maker once the pet is on screen
     open_maker_at_start: bool,
+    updater: Updater,
+    /// the update state the open menu was drawn with
+    update_drawn: update::State,
 }
 
 fn seed() -> u64 {
@@ -151,7 +155,17 @@ impl App {
         let pin = std::env::var("PIXELPET_PIN").ok().and_then(|v| Anim::from_name(v.trim()));
         brain.pin(pin);
         let exit_after = std::env::var("PIXELPET_EXIT_AFTER").ok().and_then(|v| v.trim().parse().ok());
+        // scripted and test runs never go online
+        let dev = ["PIXELPET_NO_UPDATE", "PIXELPET_SCRIPT", "PIXELPET_EXIT_AFTER", "PIXELPET_PIN", "PIXELPET_OPEN_MENU"]
+            .iter()
+            .any(|k| std::env::var_os(k).is_some());
+        let raw_exe = std::env::current_exe().unwrap_or_default();
+        let target = (!dev && !cfg!(debug_assertions))
+            .then(|| update::target(&raw_exe, std::env::var("APPIMAGE").ok().as_deref()).ok())
+            .flatten();
         App {
+            updater: Updater::new(target),
+            update_drawn: update::State::None,
             platform,
             look,
             settings,
@@ -242,6 +256,21 @@ impl App {
         }
         let cursor = self.platform.cursor_pos();
         let work = self.platform.work_area();
+        self.updater.tick(now);
+        let state = self.updater.state();
+        if let update::State::Ready(program) = &state {
+            match update::restart(program) {
+                Ok(()) => {
+                    self.close_menu();
+                    el.exit();
+                    return;
+                }
+                Err(e) => *self.updater.state.lock().unwrap() = update::State::Failed(format!("Update failed: {e}")),
+            }
+        }
+        if self.menu.is_some() && state != self.update_drawn {
+            self.rebuild_menu(None);
+        }
         self.menu_tick(now, cursor);
         while self.script.first().is_some_and(|(t, _)| now >= *t) {
             let (_, a) = self.script.remove(0);
@@ -527,7 +556,7 @@ impl App {
             }
         };
         let work = self.platform.work_area();
-        let menu = Menu::new(&self.settings, &self.current_pet().name);
+        let menu = self.make_menu(false, None);
         let scale = self.settings.size.zoom();
         let (left, top) = self.menu_place(&menu, scale, work);
         self.menu = Some(MenuOpen { win, menu, scale, left, top, last_over: self.now(), had_focus: false });
@@ -535,6 +564,32 @@ impl App {
         if let (Some(m), true) = (&self.menu, focus) {
             m.win.focus();
         }
+    }
+
+    /// The update line the menu shows now, if any.
+    fn update_line(&self) -> Option<UpdateLine> {
+        match self.updater.state() {
+            update::State::Available(r) => Some(UpdateLine::Offer(format!("Update to v{}", r.version))),
+            update::State::Installing | update::State::Ready(_) => Some(UpdateLine::Say("Updating...".into())),
+            update::State::Failed(why) => Some(UpdateLine::Say(why.chars().take(40).collect())),
+            update::State::None => None,
+        }
+    }
+
+    fn make_menu(&mut self, confirm_quit: bool, note: Option<&str>) -> Menu {
+        self.update_drawn = self.updater.state();
+        let update = self.update_line();
+        Menu::full(&self.settings, &self.current_pet().name, confirm_quit, note, update.as_ref())
+    }
+
+    /// Rebuild the open menu (keeping it in place against the ground) and redraw it.
+    fn rebuild_menu(&mut self, note: Option<&str>) {
+        let Some(scale) = self.menu.as_ref().map(|m| m.scale) else { return };
+        let menu = self.make_menu(false, note);
+        let (left, top) = self.menu_place(&menu, scale, self.platform.work_area());
+        let m = self.menu.as_mut().unwrap();
+        (m.menu, m.left, m.top) = (menu, left, top);
+        self.draw_menu();
     }
 
     fn menu_place(&self, menu: &Menu, scale: u32, work: Rect) -> (i32, i32) {
@@ -591,13 +646,13 @@ impl App {
             el.exit();
             return;
         }
+        if action == Action::Update {
+            self.updater.install();
+            self.rebuild_menu(None);
+            return;
+        }
         if matches!(action, Action::AskQuit | Action::CancelQuit) {
-            let name = self.current_pet().name.clone();
-            let menu = if action == Action::AskQuit {
-                Menu::confirming_quit(&self.settings, &name)
-            } else {
-                Menu::new(&self.settings, &name)
-            };
+            let menu = self.make_menu(action == Action::AskQuit, None);
             if let Some(scale) = self.menu.as_ref().map(|m| m.scale) {
                 let (left, top) = self.menu_place(&menu, scale, self.platform.work_area());
                 let m = self.menu.as_mut().unwrap();
@@ -634,12 +689,10 @@ impl App {
         if self.settings.pet != old_pet {
             self.swap_pet();
         }
-        let name = self.current_pet().name.clone();
-        if let Some(m) = self.menu.as_mut() {
-            m.menu = match &note {
-                Some(n) => Menu::with_note(&self.settings, &name, n),
-                None => Menu::new(&self.settings, &name),
-            };
+        if self.menu.is_some() {
+            let menu = self.make_menu(false, note.as_deref());
+            let m = self.menu.as_mut().unwrap();
+            m.menu = menu;
             m.scale = self.settings.size.zoom();
         }
         if matches!(action, Action::SetSize(_)) {
@@ -932,7 +985,9 @@ fn heart_image(zoom: u32, age: f64) -> crate::window::Rgba {
 /// Run the pet until it quits.
 pub fn run() -> Result<(), String> {
     // one pet at a time: a second copy just leaves quietly
-    let Some(_guard) = platform::claim_single_instance("PixelPet") else {
+    // just updated: the old copy may still be quitting
+    let wait = if std::env::var_os(update::AFTER_UPDATE).is_some() { 10.0 } else { 0.0 };
+    let Some(_guard) = update::wait_for(wait, || platform::claim_single_instance("PixelPet")) else {
         eprintln!("PixelPet is already running");
         return Ok(());
     };
