@@ -17,6 +17,12 @@ five breeds. Spec `docs/superpowers/specs/2026-10-23-pixelpet-v3-photo-pet-desig
 markings (a beagle stays a GSD in beagle colours). Cut-out-and-pixelate gives a still picture that can't
 walk, nap or fetch, and an offline vision model is ~5–40 MB against the 6 MB budget.
 
+**Release candidate:** `main` pushed; CI green on all three OSes. Tag `v0.1.0-rc3` made a DRAFT release:
+`PixelPet.exe` 0.99 MB, `PixelPet.dmg` 1.6 MB, `PixelPet-x86_64.AppImage` 2.5 MB; CI screenshots show the
+maker opening on first launch on macOS and Linux. Not published. `tests/platform_pure.rs`
+`second_lock_fails_first_drop_frees_it` failed once on the macOS runner ("claim after drop") and passed on
+a re-run: flaky, cause unknown.
+
 **Better route to likeness, if wanted later:** new rig art (floppy ears, curly tails, marking layouts, cats)
 as more hand-made breeds; or a real pet drawn by hand into a built-in breed, the way Alex was.
 
