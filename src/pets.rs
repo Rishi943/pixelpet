@@ -1,6 +1,6 @@
 //! Saved pets: one small `key = value` file per pet in a `pets/` folder next
-//! to the settings file. Alex and Alex the bun are built in: always there,
-//! first, and never changed or deleted. Anything missing or broken in a
+//! to the settings file. Alex, Alex the bun, Mellow and Oreo are built in:
+//! always there, first, and never changed or deleted. Anything missing or broken in a
 //! file falls back to the pet's breed; unknown keys are kept.
 
 use crate::rig::breeds::{areas, breeds, sliders};
@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 pub const ALEX_ID: &str = "alex";
 pub const BUN_ID: &str = "alex-the-bun";
+pub const MELLOW_ID: &str = "mellow";
+pub const OREO_ID: &str = "oreo";
 /// Longest name the maker takes.
 pub const NAME_MAX: usize = 24;
 
@@ -23,15 +25,17 @@ pub struct PetRecord {
     pub extra: Vec<(String, String)>,
 }
 
-pub fn builtins() -> [PetRecord; 2] {
+pub fn builtins() -> [PetRecord; 4] {
     [
         PetRecord { id: ALEX_ID.into(), name: "Alex".into(), breed: "Alex the GSD".into(), design: Design::alex(), extra: vec![] },
         PetRecord { id: BUN_ID.into(), name: "Alex the bun".into(), breed: "Alex the bun".into(), design: Design::bun(), extra: vec![] },
+        PetRecord { id: MELLOW_ID.into(), name: "Mellow".into(), breed: "Mellow".into(), design: Design::mellow(), extra: vec![] },
+        PetRecord { id: OREO_ID.into(), name: "Oreo".into(), breed: "Oreo".into(), design: Design::oreo(), extra: vec![] },
     ]
 }
 
 pub fn is_builtin(id: &str) -> bool {
-    id == ALEX_ID || id == BUN_ID
+    [ALEX_ID, BUN_ID, MELLOW_ID, OREO_ID].contains(&id)
 }
 
 /// A name as the maker allows it: printable ASCII, at most NAME_MAX.
@@ -43,6 +47,7 @@ fn species_key(p: Pet) -> &'static str {
     match p {
         Pet::Dog => "dog",
         Pet::Rabbit => "rabbit",
+        Pet::Cat => "cat",
     }
 }
 
@@ -94,6 +99,7 @@ pub fn from_text(id: &str, text: &str) -> Option<PetRecord> {
     let pet = match get("species")? {
         "dog" => Pet::Dog,
         "rabbit" => Pet::Rabbit,
+        "cat" => Pet::Cat,
         _ => return None,
     };
     let breed = breeds(pet).iter().find(|b| Some(b.name) == get("breed")).unwrap_or(&breeds(pet)[0]);
@@ -118,7 +124,7 @@ pub fn from_text(id: &str, text: &str) -> Option<PetRecord> {
                 (None, _) => extra.push((k.clone(), v.clone())),
             }
         } else if k == "collar" {
-            design.collar = if pet == Pet::Dog { colour(v) } else { None };
+            design.collar = if pet == Pet::Rabbit { None } else { colour(v) };
         } else if !matches!(k.as_str(), "name" | "species" | "breed") {
             extra.push((k.clone(), v.clone()));
         }

@@ -3,6 +3,7 @@
 //! them by `tests/parity.rs`.
 
 pub mod breeds;
+pub mod cat;
 pub mod core;
 pub mod design;
 pub mod dog;
@@ -19,6 +20,7 @@ use std::sync::OnceLock;
 pub enum Pet {
     Dog,
     Rabbit,
+    Cat,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -184,6 +186,8 @@ pub struct Frame {
 pub enum Skel {
     Dog(dog::Skel),
     Rabbit(rabbit::Skel),
+    /// a cat moves on the dog's skeleton
+    Cat(dog::Skel),
 }
 
 pub fn pose(pet: Pet, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -> Skel {
@@ -195,6 +199,7 @@ pub fn pose_for(d: &Design, anim: Anim, look: &Look, t: f64, toy: Option<Toy>) -
     match d.pet {
         Pet::Dog => Skel::Dog(dog::pose_with(anim, &dog::body_for(look, &d.shape), t, toy)),
         Pet::Rabbit => Skel::Rabbit(rabbit::Skel { toy, ..rabbit::pose_with(anim, &rabbit::body_for(look, &d.shape), t) }),
+        Pet::Cat => Skel::Cat(cat::pose_with(anim, &cat::body_for(look, &d.shape), t, toy)),
     }
 }
 
@@ -203,6 +208,7 @@ pub fn lerp(a: &Skel, b: &Skel, k: f64) -> Skel {
     match (a, b) {
         (Skel::Dog(a), Skel::Dog(b)) => Skel::Dog(dog::lerp(a, b, k)),
         (Skel::Rabbit(a), Skel::Rabbit(b)) => Skel::Rabbit(rabbit::lerp(a, b, k)),
+        (Skel::Cat(a), Skel::Cat(b)) => Skel::Cat(dog::lerp(a, b, k)),
         _ => panic!("rig::lerp: skeletons of different species"),
     }
 }
@@ -217,12 +223,26 @@ fn bun_palette() -> &'static Palette {
     P.get_or_init(|| Palette::compile(&rabbit::BUN))
 }
 
+fn mellow_palette() -> &'static Palette {
+    static P: OnceLock<Palette> = OnceLock::new();
+    P.get_or_init(|| Palette::compile(&cat::MELLOW))
+}
+
+fn builtin_palette(pet: Pet) -> &'static Palette {
+    match pet {
+        Pet::Dog => alex_palette(),
+        Pet::Rabbit => bun_palette(),
+        Pet::Cat => mellow_palette(),
+    }
+}
+
 pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
-    let pal = match s {
-        Skel::Dog(_) => alex_palette(),
-        Skel::Rabbit(_) => bun_palette(),
+    let pet = match s {
+        Skel::Dog(_) => Pet::Dog,
+        Skel::Rabbit(_) => Pet::Rabbit,
+        Skel::Cat(_) => Pet::Cat,
     };
-    draw(s, look, &Default::default(), collar, pal)
+    draw(s, look, &Default::default(), collar, builtin_palette(pet))
 }
 
 /// A pet's frame: its proportions, its coat and its collar (if any).
@@ -231,8 +251,7 @@ pub fn render(s: &Skel, look: &Look, collar: bool) -> Frame {
 pub fn render_for(d: &Design, s: &Skel, look: &Look) -> Frame {
     if d.coat.is_empty() && d.collar.is_none() {
         // the built-in coats, compiled once: no re-shading drift
-        let pal = if d.pet == Pet::Dog { alex_palette() } else { bun_palette() };
-        return draw(s, look, &d.shape, false, pal);
+        return draw(s, look, &d.shape, false, builtin_palette(d.pet));
     }
     render_with(d, s, look, &d.palette())
 }
@@ -258,20 +277,31 @@ const RESHAPED_PAD: f64 = 0.45;
 
 fn draw(s: &Skel, look: &Look, shape: &Shape, collar: bool, pal: &Palette) -> Frame {
     let fs = frame_for(look, shape);
+    let with_collar = |mut list: Vec<self::core::Shape>| {
+        if collar {
+            for sh in &mut list {
+                if sh.part == self::core::Part::Neck {
+                    sh.collar = true;
+                }
+            }
+        }
+        list
+    };
     match s {
         Skel::Dog(s) => {
             let b = dog::body_for(look, shape);
-            let mut list = dog::shapes(s, &b, look);
-            if collar {
-                for sh in &mut list {
-                    if sh.part == self::core::Part::Neck {
-                        sh.collar = true;
-                    }
-                }
-            }
+            let list = with_collar(dog::shapes(s, &b, look));
             let mut rs = raster(&list, look, fs, dog::paint);
             let mut out = to_rgba(&mut rs, look, fs, pal);
             dog::eyes(&mut out, s, &b, look, fs, pal);
+            Frame { w: fs.w, h: fs.h, ox: fs.ox, gy: fs.gy, rgba: out }
+        }
+        Skel::Cat(s) => {
+            let b = cat::body_for(look, shape);
+            let list = with_collar(cat::shapes(s, &b, look));
+            let mut rs = raster(&list, look, fs, cat::paint);
+            let mut out = to_rgba(&mut rs, look, fs, pal);
+            cat::eyes(&mut out, s, &b, look, fs, pal);
             Frame { w: fs.w, h: fs.h, ox: fs.ox, gy: fs.gy, rgba: out }
         }
         Skel::Rabbit(s) => {
@@ -311,6 +341,7 @@ pub fn with_eyes_closed(s: Skel) -> Skel {
     match s {
         Skel::Dog(d) => Skel::Dog(dog::Skel { eyes: 0.0, ..d }),
         Skel::Rabbit(r) => Skel::Rabbit(rabbit::Skel { eyes: 0.0, ..r }),
+        Skel::Cat(c) => Skel::Cat(dog::Skel { eyes: 0.0, ..c }),
     }
 }
 
@@ -325,6 +356,7 @@ pub fn mouth_for(d: &Design, s: &Skel, look: &Look) -> (f64, f64) {
     let p = match (d.pet, s) {
         (Pet::Dog, Skel::Dog(sk)) => dog::mouth(sk, &dog::body_for(look, &d.shape)),
         (Pet::Rabbit, Skel::Rabbit(r)) => rabbit::mouth(r, &rabbit::body_for(look, &d.shape)),
+        (Pet::Cat, Skel::Cat(sk)) => cat::mouth(sk, &cat::body_for(look, &d.shape)),
         _ => panic!("skeleton of the other species"),
     };
     (fs.ox as f64 + p[0] * look.r, fs.gy as f64 - p[1] * look.r)
@@ -333,7 +365,7 @@ pub fn mouth_for(d: &Design, s: &Skel, look: &Look) -> (f64, f64) {
 /// Loop length of an anim, in seconds.
 pub fn period(pet: Pet, anim: Anim) -> f64 {
     match pet {
-        Pet::Dog => dog::period(anim),
+        Pet::Dog | Pet::Cat => dog::period(anim),
         Pet::Rabbit => rabbit::period(anim),
     }
 }
@@ -351,6 +383,7 @@ pub fn speed_for(d: &Design, look: &Look, anim: Anim) -> f64 {
         (Pet::Dog, Anim::Carry | Anim::CarryBack) => dog::CARRY_SPEEDUP * walk(),
         (Pet::Rabbit, Anim::Walk | Anim::Run | Anim::Carry | Anim::RunAway | Anim::RunBack | Anim::CarryBack) => rabbit::WALK_SPEED,
         (Pet::Rabbit, Anim::Nudge) => 0.6 * rabbit::WALK_SPEED,
+        (Pet::Cat, _) => cat::speed(&cat::body_for(look, &d.shape), anim),
         _ => 0.0,
     }
 }

@@ -1,5 +1,6 @@
-//! A pet as data: its species, shape, coat colours and collar. The two
-//! built-in designs are Alex and Alex the bun exactly as drawn in v1.
+//! A pet as data: its species, shape, coat colours and collar. The
+//! built-in designs are Alex and Alex the bun exactly as drawn in v1, and
+//! the cats Mellow and Oreo.
 
 use super::core::{fam, Coat, Palette};
 use super::Pet;
@@ -78,17 +79,33 @@ impl Design {
         Design { pet: Pet::Rabbit, shape: Shape::default(), coat: vec![], collar: None }
     }
 
+    pub fn mellow() -> Design {
+        Design { pet: Pet::Cat, shape: Shape::default(), coat: vec![], collar: None }
+    }
+
+    /// Oreo: a long-haired black cat in a pink collar (for his paw tag).
+    pub fn oreo() -> Design {
+        Design {
+            pet: Pet::Cat,
+            shape: Shape::default(),
+            coat: vec![(fam::TAN, 0x231D21), (fam::CREAM, 0x3A3036), (fam::EAR_IN, 0x5E3C44), (fam::NOSE, 0x2C2226)],
+            collar: Some(0xD86AA0),
+        }
+    }
+
     pub fn builtin(pet: Pet) -> Design {
         match pet {
             Pet::Dog => Design::alex(),
             Pet::Rabbit => Design::bun(),
+            Pet::Cat => Design::mellow(),
         }
     }
 
-    fn species_coat(&self) -> &'static Coat {
+    pub fn species_coat(&self) -> &'static Coat {
         match self.pet {
             Pet::Dog => &super::dog::ALEX,
             Pet::Rabbit => &super::rabbit::BUN,
+            Pet::Cat => &super::cat::MELLOW,
         }
     }
 

@@ -306,8 +306,8 @@ impl Brain {
                 self.eyes_closed = n >= 1;
                 let anim = match (self.pet, n) {
                     (_, 0) => Anim::Stand,
-                    (Pet::Dog, n) if n >= STROKES_TO_SETTLE => Anim::Lean,
-                    (Pet::Dog, _) => Anim::Wag,
+                    (Pet::Dog | Pet::Cat, n) if n >= STROKES_TO_SETTLE => Anim::Lean,
+                    (Pet::Dog | Pet::Cat, _) => Anim::Wag,
                     (Pet::Rabbit, n) if n >= STROKES_TO_SETTLE => Anim::Flop,
                     (Pet::Rabbit, _) => Anim::Stand,
                 };

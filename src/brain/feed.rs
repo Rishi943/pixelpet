@@ -39,6 +39,7 @@ impl Brain {
         let ground = work.bottom() as f64;
         let (fwd, up) = match self.pet {
             Pet::Dog => (0.8, 0.3),
+            Pet::Cat => (0.7, 0.25),
             Pet::Rabbit => (0.6, 0.25),
         };
         (self.x + self.facing as f64 * fwd * unit_px, ground - up * unit_px)
@@ -109,7 +110,7 @@ impl Brain {
                     if eaten >= EAT {
                         self.props.food = None;
                         let (anim, secs) = match self.pet {
-                            Pet::Dog => (Anim::Wag, WAG),
+                            Pet::Dog | Pet::Cat => (Anim::Wag, WAG),
                             Pet::Rabbit => (Anim::Hop, rig::period(Pet::Rabbit, Anim::Hop)),
                         };
                         self.show_anim(anim, now);

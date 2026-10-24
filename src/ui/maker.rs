@@ -217,7 +217,7 @@ impl Maker {
             let c = self.pick(&SWATCHES);
             self.set_coat(f, c);
         }
-        if pet == Pet::Dog {
+        if pet != Pet::Rabbit {
             self.design.collar = Some(self.pick(&COLLARS));
         }
         if self.auto_name || self.step() != Step::Name {
@@ -238,11 +238,7 @@ impl Maker {
         if let Some(&(_, c)) = self.design.coat.iter().find(|(cf, _)| *cf == f) {
             return c;
         }
-        let coat = match self.design.pet {
-            Pet::Dog => &crate::rig::dog::ALEX,
-            Pet::Rabbit => &crate::rig::rabbit::BUN,
-        };
-        coat.fams.iter().find(|(cf, _)| *cf == f).map_or(0, |(_, v)| v[2])
+        self.design.species_coat().fams.iter().find(|(cf, _)| *cf == f).map_or(0, |(_, v)| v[2])
     }
 
     fn set_slider(&mut self, i: usize, x: i32) {
@@ -416,7 +412,7 @@ impl Maker {
             Step::Animal => {
                 c.wide_button("Dog", Y0, pet == Pet::Dog, Hit::Animal(Pet::Dog));
                 c.wide_button("Rabbit", Y0 + 12, pet == Pet::Rabbit, Hit::Animal(Pet::Rabbit));
-                c.text("Cat (later)", RX + 3, Y0 + 26, DIM);
+                c.wide_button("Cat", Y0 + 24, pet == Pet::Cat, Hit::Animal(Pet::Cat));
             }
             Step::Breed => {
                 for (i, b) in breeds(pet).iter().enumerate() {
@@ -444,7 +440,7 @@ impl Maker {
                     }
                     y += 14;
                 }
-                if pet == Pet::Dog {
+                if pet != Pet::Rabbit {
                     c.text("Collar", RX, y + 2, TEXT);
                     c.swatch("swatch:Collar:none".into(), SW_X, y, None, self.design.collar.is_none(), Hit::CollarNone);
                     for (i, &col) in COLLARS.iter().enumerate() {
@@ -492,12 +488,13 @@ impl Maker {
 
 /// Every fixed string the maker shows (for the font check).
 pub fn all_copy() -> Vec<&'static str> {
-    let mut v = vec!["Make a pet", "x", "Dog", "Rabbit", "Cat (later)", "Collar", "Type a name", "Then they hop onto", "your taskbar."];
+    let mut v = vec!["Make a pet", "x", "Dog", "Rabbit", "Cat", "Collar", "Type a name", "Then they hop onto", "your taskbar."];
     v.extend(["Delete", "Delete ?", "Yes", "No", "Random", "< Back", "Next >", "Done", "0123456789/"]);
     v.extend(STEPS);
     v.extend(NAMES);
     v.extend(areas(Pet::Dog).iter().map(|a| a.1));
     v.extend(areas(Pet::Rabbit).iter().map(|a| a.1));
+    v.extend(areas(Pet::Cat).iter().map(|a| a.1));
     v
 }
 

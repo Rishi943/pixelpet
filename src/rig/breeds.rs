@@ -66,10 +66,23 @@ static RABBITS: [Breed; 3] = [
     Breed { name: "Black and white", design: || rabbit([0xF3F0EB, 0x2A2424, 0xD6A799]) },
 ];
 
+fn cat(coat: [u32; 2]) -> Design {
+    let [main, chest] = coat;
+    Design { pet: Pet::Cat, shape: Shape::default(), coat: vec![(fam::TAN, main), (fam::CREAM, chest)], collar: None }
+}
+
+static CATS: [Breed; 4] = [
+    Breed { name: "Mellow", design: Design::mellow },
+    Breed { name: "Oreo", design: Design::oreo },
+    Breed { name: "Ginger", design: || cat([0xD2783A, 0xF0C89A]) },
+    Breed { name: "Grey", design: || cat([0x8A9098, 0xD8DCE0]) },
+];
+
 pub fn breeds(pet: Pet) -> &'static [Breed] {
     match pet {
         Pet::Dog => &DOGS,
         Pet::Rabbit => &RABBITS,
+        Pet::Cat => &CATS,
     }
 }
 
@@ -90,19 +103,30 @@ static RABBIT_SLIDERS: [Slider; 4] = [
     Slider { field: "feet", label: "Feet", lo: 0.8, hi: 1.3 },
 ];
 
+static CAT_SLIDERS: [Slider; 6] = [
+    Slider { field: "legs", label: "Legs", lo: 0.75, hi: 1.25 },
+    Slider { field: "body", label: "Body", lo: 0.8, hi: 1.25 },
+    Slider { field: "head", label: "Head", lo: 0.9, hi: 1.3 },
+    Slider { field: "ears", label: "Ears", lo: 0.7, hi: 1.4 },
+    Slider { field: "tail", label: "Tail", lo: 0.6, hi: 1.3 },
+    Slider { field: "fluff", label: "Fluff", lo: 0.85, hi: 1.3 },
+];
+
 pub fn sliders(pet: Pet) -> &'static [Slider] {
     match pet {
         Pet::Dog => &DOG_SLIDERS,
         Pet::Rabbit => &RABBIT_SLIDERS,
+        Pet::Cat => &CAT_SLIDERS,
     }
 }
 
 /// The colour areas a person can set, as (family, label). The collar is
-/// its own row (dog only).
+/// its own row (dogs and cats).
 pub fn areas(pet: Pet) -> &'static [(i8, &'static str)] {
     match pet {
         Pet::Dog => &[(fam::TAN, "Coat"), (fam::BLACK, "Saddle"), (fam::CREAM, "Legs"), (fam::MASK, "Mask")],
         Pet::Rabbit => &[(fam::WHITE, "Coat"), (fam::BROWN, "Patches"), (fam::PINK, "Ears")],
+        Pet::Cat => &[(fam::TAN, "Coat"), (fam::CREAM, "Chest")],
     }
 }
 

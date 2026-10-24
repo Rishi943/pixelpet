@@ -28,7 +28,8 @@ PixelPet isn't signed yet, so the first launch asks once:
 ## What it does
 
 - **Pet, play, feed.** Hover over the pet to open its bubble. Throw a ball, coconut or football, or hand over a treat.
-- **Make your own pet.** Pick a dog or a rabbit, then choose a breed, shape, coat and collar, and give it a name. Keep as many as you like.
+- **Four pets built in.** Alex the dog, Alex the bun, and two cats, Mellow and Oreo.
+- **Make your own pet.** Pick a dog, a rabbit or a cat, then choose a breed, shape, coat and collar, and give it a name. Keep as many as you like.
 - **Settings on right-click.** Switch pets, and set its size, opacity, what it does over fullscreen apps, and launch on startup.
 
 | | |

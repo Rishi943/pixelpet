@@ -80,7 +80,7 @@ impl Brain {
         let grab = matches!(inp.mouse, Mouse::Down(..)) && inp.over_toy;
         let mut t = self.props.toy.unwrap_or(ToyShow { toy, x: self.x, lift: 0.0, depth: 0.0, in_mouth: false });
         let (run, back) = match self.pet {
-            Pet::Dog => (Anim::Run, Anim::Carry),
+            Pet::Dog | Pet::Cat => (Anim::Run, Anim::Carry),
             Pet::Rabbit => (Anim::Walk, Anim::Nudge),
         };
         let st = match st {
@@ -147,7 +147,7 @@ impl Brain {
                 let tx = clamp(t.x - side * gap);
                 if self.go_to(tx, t.depth, run, now, dt, u) {
                     match self.pet {
-                        Pet::Dog => {
+                        Pet::Dog | Pet::Cat => {
                             self.show_anim(Anim::Eat, now);
                             State::Pickup { until: now + PICKUP }
                         }

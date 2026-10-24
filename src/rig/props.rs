@@ -13,6 +13,7 @@ pub enum Food {
     Carrot,
     Coriander,
     Banana,
+    Fish,
 }
 
 impl Food {
@@ -21,6 +22,7 @@ impl Food {
         match pet {
             Pet::Dog => [Food::Chicken, Food::Bone, Food::Kibble],
             Pet::Rabbit => [Food::Carrot, Food::Coriander, Food::Banana],
+            Pet::Cat => [Food::Fish, Food::Chicken, Food::Kibble],
         }
     }
 
@@ -32,6 +34,7 @@ impl Food {
             Food::Carrot => "Carrot",
             Food::Coriander => "Coriander",
             Food::Banana => "Banana",
+            Food::Fish => "Fish",
         }
     }
 }
@@ -131,6 +134,19 @@ fn art(f: Food) -> Art {
             ],
             pal: &[('1', 0x8A6A2A), ('2', 0xFFF3C0), ('3', 0xF0D878)],
             crumb: 0xFFF3C0,
+        },
+        // lying on its side, head to the left, tail fin to the right
+        Food::Fish => Art {
+            rows: &[
+                "..ooooooo..oo.",
+                ".o2223333o.o2o",
+                "oe22222233oo2o",
+                "o1222222223o2o",
+                ".o1111112o.o1o",
+                "..ooooooo..oo.",
+            ],
+            pal: &[('1', 0x4A6A8A), ('2', 0x7FA6C8), ('3', 0xC8DCEC), ('e', 0x101014)],
+            crumb: 0x7FA6C8,
         },
     }
 }
