@@ -119,7 +119,7 @@ gh api repos/Rishi943/pixelpet-submissions/contents/submissions/<id>/photo-1.jpg
 
 For each one:
 
-1. **Screen it.** Not a dog, cat or rabbit, not a real pet, or not something to publish: comment why, label `declined` (create it if missing), close it. Don't make anything.
+1. **Screen it.** Every real dog, cat or rabbit gets made; there is no quality bar. Another kind of animal: label `wishlist` (create it if missing), leave it open, make nothing. Not a pet at all, or not something to publish: label `declined`, close it.
 2. Steps 1 to 3 above. Name the pet as the sender did.
 3. Show the person running you the preview next to a photo and ask: ship, tweak, or skip.
 4. On ship: section 4 (built-in, for everyone). Then comment on the issue (which version they're in), label `added`, remove `new`, close it.
