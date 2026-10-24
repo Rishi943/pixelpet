@@ -19,5 +19,6 @@
 /tools/ci/__pycache__/
 /examples/*
 !/examples/ci_backdrop.rs
+!/examples/make_icon.rs
 /.github/workflows/ci.yml
 /*.jpg
