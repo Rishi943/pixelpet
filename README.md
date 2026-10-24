@@ -40,4 +40,4 @@ PixelPet isn't signed yet, so the first launch asks once:
 cargo build --release
 ```
 
-The binary is `target/release/PixelPet` (`PixelPet.exe` on Windows). See [docs/release.md](docs/release.md) for how the release downloads are built.
+The binary is `target/release/PixelPet` (`PixelPet.exe` on Windows). Pushing a `v*` tag builds the three downloads into a draft release (`.github/workflows/release.yml`).

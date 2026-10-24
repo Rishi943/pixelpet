@@ -8,3 +8,16 @@
 
 # brainstorm mockups and plan workspaces
 /.superpowers/
+
+# kept on this machine only: the public repo holds just what builds and ships the app
+/docs/
+/drafts/
+/tests/
+/video/
+/tools/*
+!/tools/ci/
+/tools/ci/__pycache__/
+/examples/*
+!/examples/ci_backdrop.rs
+/.github/workflows/ci.yml
+/*.jpg

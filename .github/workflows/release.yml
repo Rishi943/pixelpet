@@ -127,5 +127,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --title "PixelPet $GITHUB_REF_NAME" \
-            --notes-file docs/release-notes.md \
+            --notes-file .github/release-notes.md \
             out/windows/PixelPet.exe out/macos/PixelPet.dmg out/linux/PixelPet-x86_64.AppImage
