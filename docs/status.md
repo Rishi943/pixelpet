@@ -2,6 +2,24 @@
 
 Newest first. The project's own session record; the shared `E:\AI` tracker only points here.
 
+## 2026-10-24 — PixelPet v3 (pet from photos) parked; v2 goes to release
+
+**Decision (Rushi):** no photo input ships. *"I want alex or alex the bun level of quality"*; clicking points
+was *"too much work"* and the result still didn't look like the photo. v2 (default pets + make your own by
+hand) is what releases.
+
+**Where v3 is:** branch `v3`, not merged. It has: JPEG/PNG/WebP loading, OS photo dialogs, drag and drop,
+a Photos step in the maker (bigger window, reference pet), body and colour clicks, proportions calibrated on
+five breeds. Spec `docs/superpowers/specs/2026-10-23-pixelpet-v3-photo-pet-design.md`, plan
+`docs/superpowers/plans/2026-10-23-pixelpet-v3-photo-pet.md` (on `v3`).
+
+**Why it can't reach Alex's level:** photos only move sliders and colours on the GSD skeleton and its fixed
+markings (a beagle stays a GSD in beagle colours). Cut-out-and-pixelate gives a still picture that can't
+walk, nap or fetch, and an offline vision model is ~5–40 MB against the 6 MB budget.
+
+**Better route to likeness, if wanted later:** new rig art (floppy ears, curly tails, marking layouts, cats)
+as more hand-made breeds; or a real pet drawn by hand into a built-in breed, the way Alex was.
+
 ## 2026-10-23 — PixelPet v2: the pet maker, merged to main
 
 **Repo:** branch `v2` (which already held `m3`) fast-forwarded into `main`. Spec
