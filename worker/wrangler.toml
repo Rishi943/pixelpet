@@ -1,0 +1,10 @@
+# The PixelPet upload Worker. Deploy: npx wrangler deploy (from this folder).
+# Secrets (wrangler secret put NAME): GITHUB_TOKEN, TURNSTILE_SECRET, SESSION_KEY.
+name = "pixelpet-upload"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+REPO = "Rishi943/pixelpet-submissions"
+ALLOW_ORIGIN = "https://rishi943.github.io"
+TURNSTILE_HOSTNAME = "rishi943.github.io"
