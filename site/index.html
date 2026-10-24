@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixelPet</title>
+<meta name="description" content="A small pixel pet that lives on your desktop. Pet it, play fetch, feed it, or let it nap. Free for Windows, macOS and Linux.">
+<meta property="og:title" content="PixelPet">
+<meta property="og:description" content="A small pixel pet that lives on your desktop. Free for Windows, macOS and Linux.">
+<meta property="og:image" content="https://rishi943.github.io/pixelpet/img/maker-linux.png">
+<link rel="icon" href="img/dog-walk.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --desk: #3b6ea5;
+    --desk-dark: #2c5482;
+    --cream: #f3d39d;
+    --cream-deep: #e8c287;
+    --ink: #1e1612;
+    --muted: #7a6650;
+    --blue: #2f66cc;
+    --ground: #6b5a44;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--desk);
+    color: var(--ink);
+    font: 22px/1.35 "VT323", ui-monospace, monospace;
+  }
+  img { image-rendering: pixelated; max-width: 100%; display: block; }
+  a { color: inherit; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+
+  /* the app's own window look: cream panel, hard dark border, no rounding */
+  .panel {
+    background: var(--cream);
+    border: 3px solid var(--ink);
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, .25);
+  }
+  .bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 12px; border-bottom: 3px solid var(--ink);
+    font-family: "Silkscreen", monospace; font-size: 16px;
+  }
+  .dots { display: flex; gap: 4px; }
+  .dots i { width: 10px; height: 10px; border: 2px solid var(--ink); }
+  .dots i:first-child { background: var(--blue); border-color: var(--blue); }
+
+  header { padding: 56px 0 0; text-align: center; color: #fff; }
+  h1 {
+    font-family: "Silkscreen", monospace; font-weight: 400;
+    font-size: clamp(44px, 9vw, 84px); line-height: 1; margin: 0;
+    text-shadow: 4px 4px 0 var(--desk-dark);
+  }
+  .tag { font-size: clamp(22px, 3.4vw, 30px); margin: 14px auto 0; max-width: 34ch; }
+
+  /* the pets walk along a "taskbar" under the hero */
+  .stage { position: relative; height: 190px; margin-top: 28px; overflow: hidden; }
+  .stage img { position: absolute; bottom: 30px; height: auto; }
+  .stage .dog { width: 207px; left: 22%; }
+  .stage .bun { width: 160px; left: 58%; }
+  .taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 30px; background: var(--desk-dark); border-top: 3px solid var(--ink); }
+
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 40px 0 10px; }
+  .dl {
+    display: block; text-decoration: none; padding: 16px 14px 14px;
+    background: var(--cream); border: 3px solid var(--ink); box-shadow: 6px 6px 0 rgba(0,0,0,.25);
+    transition: transform .08s;
+  }
+  .dl:hover, .dl:focus-visible { transform: translate(-2px, -2px); box-shadow: 8px 8px 0 rgba(0,0,0,.25); outline: none; }
+  .dl:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 rgba(0,0,0,.25); }
+  .dl b { display: block; font: 400 22px "Silkscreen", monospace; }
+  .dl span { color: var(--muted); font-size: 19px; }
+  .dl em { display: inline-block; margin-top: 10px; background: var(--blue); color: #fff; font-style: normal; padding: 0 10px; }
+  .fine { text-align: center; color: #e4ecf7; font-size: 19px; margin: 6px 0 0; }
+
+  section { margin: 56px 0; }
+  h2 {
+    font: 400 26px "Silkscreen", monospace; color: #fff; margin: 0 0 16px;
+    text-shadow: 3px 3px 0 var(--desk-dark);
+  }
+  .video { padding: 0; overflow: hidden; }
+  .video video { display: block; width: 100%; height: auto; background: var(--desk-dark); }
+
+  .features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .feat { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: end; padding: 14px; }
+  .feat .art { height: 110px; display: flex; align-items: flex-end; justify-content: center; border-bottom: 3px solid var(--ground); }
+  .feat .art img { width: 110px; }
+  .feat h3 { margin: 0 0 4px; font: 400 18px "Silkscreen", monospace; }
+  .feat p { margin: 0; }
+
+  .shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  figure { margin: 0; }
+  figure .panel { padding: 0; overflow: hidden; }
+  figure img { image-rendering: auto; width: 100%; }
+  figcaption { color: #fff; margin-top: 8px; font-size: 20px; }
+
+  .first .body { padding: 14px 18px; }
+  .first p { margin: 0 0 10px; }
+  .first ul { margin: 0; padding-left: 20px; }
+  .first li { margin: 6px 0; }
+  kbd { font: inherit; background: var(--cream-deep); border: 2px solid var(--ink); padding: 0 6px; }
+
+  footer { text-align: center; color: #e4ecf7; padding: 10px 0 48px; font-size: 19px; }
+
+  @media (max-width: 720px) {
+    body { font-size: 20px; }
+    .downloads, .features, .shots { grid-template-columns: 1fr; }
+    .stage { height: 150px; }
+    .stage .dog { width: 150px; left: 8%; }
+    .stage .bun { width: 116px; left: 60%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dl { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>PixelPet</h1>
+    <p class="tag">A small pixel pet that lives on your desktop.</p>
+  </div>
+  <div class="stage" aria-hidden="true">
+    <img class="dog" src="img/dog-walk.gif" alt="">
+    <img class="bun" src="img/rabbit-hop.gif" alt="">
+    <div class="taskbar"></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="downloads">
+    <a class="dl" href="https://github.com/Rishi943/pixelpet/releases/latest/download/PixelPet.exe">
+      <b>Windows</b><span>PixelPet.exe · 1 MB</span><br><em>Download</em>
+    </a>
+    <a class="dl" href="https://github.com/Rishi943/pixelpet/releases/latest/download/PixelPet.dmg">
+      <b>macOS</b><span>Intel + Apple Silicon · 1.6 MB</span><br><em>Download</em>
+    </a>
+    <a class="dl" href="https://github.com/Rishi943/pixelpet/releases/latest/download/PixelPet-x86_64.AppImage">
+      <b>Linux</b><span>AppImage · 2.5 MB</span><br><em>Download</em>
+    </a>
+  </div>
+  <p class="fine">Free. One file, no installer, no internet, no account.</p>
+
+  <section id="video" hidden>
+    <h2>See it move</h2>
+    <div class="panel video">
+      <video src="img/pixelpet.mp4" poster="img/maker-linux.png" controls playsinline preload="metadata"></video>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <div class="features">
+      <div class="panel feat">
+        <div class="art"><img src="img/dog-walk.gif" alt="Alex the dog walking"></div>
+        <div><h3>Lives on your taskbar</h3><p>Your pet walks along the top of the taskbar or Dock, and clicks pass straight through to whatever is behind it.</p></div>
+      </div>
+      <div class="panel feat">
+        <div class="art"><img src="img/dog-wag.gif" alt="Alex wagging"></div>
+        <div><h3>Pet, play, feed</h3><p>Hover to open its bubble. Give it a pet, throw a ball, coconut or football, or hand over a treat.</p></div>
+      </div>
+      <div class="panel feat">
+        <div class="art"><img src="img/rabbit-eat.gif" alt="Alex the bun eating"></div>
+        <div><h3>Snacks</h3><p>Chicken, bones and kibble for dogs. Carrots, coriander and banana for buns.</p></div>
+      </div>
+      <div class="panel feat">
+        <div class="art"><img src="img/dog-sleep.gif" alt="Alex napping"></div>
+        <div><h3>Naps</h3><p>Leave it alone for a while and it curls up for a nap. Drag it anywhere, and it drops back to the ground.</p></div>
+      </div>
+      <div class="panel feat">
+        <div class="art"><img src="img/rabbit-hop.gif" alt="Alex the bun hopping"></div>
+        <div><h3>Make your own</h3><p>A dog or a rabbit, in five steps: breed, shape, coat, collar and a name. Keep as many pets as you like.</p></div>
+      </div>
+      <div class="panel feat">
+        <div class="art"><img src="img/dog-eat.gif" alt="Alex eating"></div>
+        <div><h3>Stays out of the way</h3><p>It hides over fullscreen video, or dims if you'd rather. You pick its size and opacity, and it can launch on startup.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Screenshots</h2>
+    <div class="shots">
+      <figure><div class="panel"><img src="img/maker-mac.png" alt="The pet maker on macOS, with the dog napping above the Dock" loading="lazy"></div><figcaption>The pet maker opens on first launch.</figcaption></figure>
+      <figure><div class="panel"><img src="img/menu-mac.png" alt="The right-click settings menu" loading="lazy"></div><figcaption>Right-click the pet for its settings.</figcaption></figure>
+      <figure><div class="panel"><img src="img/shot-mac.png" alt="Alex standing on top of the macOS Dock" loading="lazy"></div><figcaption>Alex standing on the Dock.</figcaption></figure>
+      <figure><div class="panel"><img src="img/maker-linux.png" alt="The pet maker on Linux" loading="lazy"></div><figcaption>The same pet on Linux.</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="first">
+    <h2>First launch</h2>
+    <div class="panel">
+      <div class="bar"><span>Read me</span><span class="dots"><i></i><i></i><i></i></span></div>
+      <div class="body">
+        <p>PixelPet isn't signed yet, so your computer asks once before running it:</p>
+        <ul>
+          <li><b>Windows:</b> on "Windows protected your PC", click <kbd>More info</kbd>, then <kbd>Run anyway</kbd>.</li>
+          <li><b>macOS:</b> open the dmg and drag PixelPet to Applications. If it says it can't be opened, click <kbd>Done</kbd>, go to System Settings → Privacy &amp; Security, and click <kbd>Open Anyway</kbd>.</li>
+          <li><b>Linux:</b> run <kbd>chmod +x PixelPet-x86_64.AppImage</kbd>, then run it. It needs X11, or Wayland with XWayland.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://github.com/Rishi943/pixelpet">Source on GitHub</a> · <a href="https://github.com/Rishi943/pixelpet/releases">All releases</a>
+</footer>
+
+</body>
+</html>
