@@ -61,8 +61,10 @@
   /* the pets walk along a "taskbar" under the hero */
   .stage { position: relative; height: 190px; margin-top: 28px; overflow: hidden; }
   .stage img { position: absolute; bottom: 30px; height: auto; }
-  .stage .dog { width: 207px; left: 22%; }
-  .stage .bun { width: 160px; left: 58%; }
+  .stage .dog { width: 207px; left: 8%; }
+  .stage .mel { width: 132px; left: 36%; }
+  .stage .bun { width: 160px; left: 56%; }
+  .stage .ore { width: 90px; left: 80%; }
   .taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 30px; background: var(--desk-dark); border-top: 3px solid var(--ink); }
 
   .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 40px 0 10px; }
@@ -111,8 +113,10 @@
     body { font-size: 20px; }
     .downloads, .features, .shots { grid-template-columns: 1fr; }
     .stage { height: 150px; }
-    .stage .dog { width: 150px; left: 8%; }
-    .stage .bun { width: 116px; left: 60%; }
+    .stage .dog { width: 120px; left: 2%; }
+    .stage .mel { width: 76px; left: 34%; }
+    .stage .bun { width: 92px; left: 56%; }
+    .stage .ore { width: 52px; left: 82%; }
   }
   @media (prefers-reduced-motion: reduce) {
     .dl { transition: none; }
@@ -124,11 +128,13 @@
 <header>
   <div class="wrap">
     <h1>PixelPet</h1>
-    <p class="tag">A small pixel pet that lives on your desktop.</p>
+    <p class="tag">Small pixel pets that live on your desktop.</p>
   </div>
   <div class="stage" aria-hidden="true">
     <img class="dog" src="img/dog-walk.gif" alt="">
+    <img class="mel" src="img/mellow-stand.gif" alt="">
     <img class="bun" src="img/rabbit-hop.gif" alt="">
+    <img class="ore" src="img/oreo-sit.gif" alt="">
     <div class="taskbar"></div>
   </div>
 </header>

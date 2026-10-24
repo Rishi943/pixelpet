@@ -2,6 +2,10 @@
   <img src="site/img/dog-walk.gif" height="120" alt="Alex the dog walking">
   &nbsp;&nbsp;&nbsp;
   <img src="site/img/rabbit-hop.gif" height="120" alt="Alex the bun hopping">
+  &nbsp;&nbsp;&nbsp;
+  <img src="site/img/mellow-stand.gif" height="120" alt="Mellow the cat">
+  &nbsp;&nbsp;&nbsp;
+  <img src="site/img/oreo-sit.gif" height="100" alt="Oreo the cat">
 </p>
 
 <h1 align="center">PixelPet</h1>
